@@ -1,5 +1,5 @@
 
-# go-pkggodev-client - Typed Go client for pkg.go.dev
+# Typed Go client for pkg.go.dev
 
 [![tag](https://img.shields.io/github/tag/samber/go-pkggodev-client.svg)](https://github.com/samber/go-pkggodev-client/releases)
 ![Go Version](https://img.shields.io/badge/Go-%3E%3D%201.25-%23007d9c)
