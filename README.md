@@ -19,7 +19,7 @@ iterators**. It wraps an [ogen](https://github.com/ogen-go/ogen)-generated clien
 [`internal/api`](internal/api).
 
 > [!TIP]
-> Looking for a **CLI** instead of a Go library? Use [`samber/godig`](https://github.com/samber/godig) — the pkg.go.dev CLI powered by this client.
+> Looking for a **CLI** or **MCP** instead of a Go library? Use [`samber/godig`](https://github.com/samber/godig) — the pkg.go.dev CLI powered by this client.
 
 ## 🚀 Install
 
