@@ -76,6 +76,16 @@ type ModuleVersion struct {
 	RetractionReason  string    `json:"retractionReason"`
 }
 
+// MajorVersion is one major version of a module, discovered via the module
+// proxy (see Client.MajorVersions). Majors beyond v1 live as separate modules
+// (path, path/v2, path/v3...), so each MajorVersion carries its own module path.
+type MajorVersion struct {
+	ModulePath string `json:"modulePath"` // e.g. "github.com/samber/do/v2"
+	Major      string `json:"major"`      // e.g. "v2"
+	Version    string `json:"version"`    // latest version in this major, e.g. "v2.0.0"
+	IsLatest   bool   `json:"isLatest"`   // true for the highest major
+}
+
 // Vulnerability is one entry from a /vulns response.
 type Vulnerability struct {
 	ID           string `json:"id"`
