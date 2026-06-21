@@ -10,8 +10,8 @@
 [![License](https://img.shields.io/github/license/samber/go-pkggodev-client)](./LICENSE)
 
 A typed Go client for the [pkg.go.dev](https://pkg.go.dev) API (the "Go Pkgsite API",
-`https://pkg.go.dev/v1beta`): search packages and symbols, read documentation, list versions,
-importers and known vulnerabilities.
+`https://pkg.go.dev/v1beta`): search packages and symbols, read documentation (whole package or a
+single symbol), list versions, importers and known vulnerabilities.
 
 The public API lives at the module root (`package pkggodev`): **context-first methods**,
 **functional options**, **clean typed results** (no codegen leakage) and **auto-paginating
@@ -42,6 +42,14 @@ if err != nil {
 // Single object.
 pkg, _ := c.Package(ctx, "github.com/samber/lo")
 fmt.Println(pkg.Path, pkg.Synopsis) // clean strings, no Opt wrappers
+
+// A single symbol's documentation (token-efficient, no full package blob).
+sym, err := c.SymbolDoc(ctx, "github.com/samber/lo", "Map", pkggodev.WithExamples())
+if errors.Is(err, pkggodev.ErrSymbolNotFound) {
+	// symbol does not exist in the package
+}
+fmt.Println(sym.Kind, sym.Signature) // "Function", "func Map[...](...) ..."
+fmt.Println(sym.Synopsis)            // first sentence of the doc
 
 // One page.
 page, _ := c.Versions(ctx, "github.com/samber/lo", pkggodev.WithLimit(10))
