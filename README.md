@@ -18,6 +18,9 @@ The public API lives at the module root (`package pkggodev`): **context-first me
 iterators**. It wraps an [ogen](https://github.com/ogen-go/ogen)-generated client kept under
 [`internal/api`](internal/api).
 
+> [!TIP]
+> Looking for a **CLI** instead of a Go library? Use [`samber/godig`](https://github.com/samber/godig) — the pkg.go.dev CLI powered by this client.
+
 ## 🚀 Install
 
 ```sh
