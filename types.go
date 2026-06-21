@@ -92,6 +92,28 @@ type Symbol struct {
 	Parent   string `json:"parent"`
 }
 
+// SymbolDoc is the documentation of a single package symbol, derived client-side
+// from the package documentation. See Client.SymbolDoc.
+type SymbolDoc struct {
+	Path      string    `json:"path"`
+	Symbol    string    `json:"symbol"`
+	Kind      string    `json:"kind"` // Function, Method, Type, Variable or Constant.
+	Signature string    `json:"signature"`
+	Synopsis  string    `json:"synopsis,omitempty"`
+	Doc       string    `json:"doc,omitempty"`
+	Examples  []Example `json:"examples,omitempty"` // Populated only when WithExamples is set.
+	Version   string    `json:"version,omitempty"`
+	Goos      string    `json:"goos,omitempty"`
+	Goarch    string    `json:"goarch,omitempty"`
+}
+
+// Example is a runnable example attached to a symbol.
+type Example struct {
+	Name   string `json:"name,omitempty"` // Suffix of "Example (name)", empty for a bare "Example".
+	Code   string `json:"code"`
+	Output string `json:"output,omitempty"`
+}
+
 // PackageInfo is one entry from a /packages response.
 type PackageInfo struct {
 	Path              string `json:"path"`

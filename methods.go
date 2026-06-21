@@ -2,6 +2,7 @@ package pkggodev
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/samber/go-pkggodev-client/internal/api"
 )
@@ -147,6 +148,39 @@ func (c *Client) Symbols(ctx context.Context, path string, opts ...Option) (*Pag
 		return nil, err
 	}
 	return &page, nil
+}
+
+// SymbolDoc returns the documentation of a single symbol of the package at path.
+// symbol is the exported identifier (e.g. "Map") or "Type.Method" (e.g. "Either.ForEach");
+// matching is case-sensitive. WithExamples includes runnable examples.
+//
+// The documentation is derived client-side from the package documentation, which is always
+// requested in Markdown form, so WithDoc has no effect here. It returns ErrSymbolNotFound when
+// the symbol is absent from the package.
+func (c *Client) SymbolDoc(ctx context.Context, path, symbol string, opts ...Option) (*SymbolDoc, error) {
+	p := newParams(opts)
+	res, err := c.raw.GetPackage(ctx, api.GetPackageParams{
+		Path:     path,
+		Module:   optStr(p.module),
+		Version:  optStr(p.version),
+		Goos:     optStr(p.goos),
+		Goarch:   optStr(p.goarch),
+		Doc:      api.NewOptString("markdown"),
+		Examples: optBool(p.examples),
+	})
+	if err != nil {
+		return nil, err
+	}
+	sd, ok := parseSymbolDoc(res.Docs.Value, symbol, p.examples)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrSymbolNotFound, symbol)
+	}
+	sd.Path = path
+	sd.Symbol = symbol
+	sd.Version = res.Version.Value
+	sd.Goos = res.Goos.Value
+	sd.Goarch = res.Goarch.Value
+	return sd, nil
 }
 
 // Vulns lists known vulnerabilities for the module or package at path.

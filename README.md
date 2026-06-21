@@ -83,7 +83,15 @@ All take `context.Context` first and return clean, typed values:
 | `Module(ctx, path, opts...)`     | `*Module`              |
 | `Versions(ctx, path, opts...)`   | `*Page[ModuleVersion]` |
 | `Symbols(ctx, path, opts...)`    | `*Page[Symbol]`        |
+| `SymbolDoc(ctx, path, symbol, opts...)` | `*SymbolDoc`    |
 | `Vulns(ctx, path, opts...)`      | `*Page[Vulnerability]` |
+
+`SymbolDoc` returns the documentation of a single symbol (`func`, `type`, `method`, `var` or
+`const`) instead of the whole package doc blob — handy to keep token usage low. `symbol` is the
+exported identifier (`"Map"`) or `"Type.Method"` (`"Either.ForEach"`); matching is case-sensitive.
+The doc is derived client-side from the package documentation (always fetched as Markdown, so
+`WithDoc` is ignored here) and the method returns `ErrSymbolNotFound` when the symbol is absent.
+Pass `WithExamples` to include runnable examples.
 
 ### Call options
 
