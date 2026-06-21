@@ -44,7 +44,7 @@ pkg, _ := c.Package(ctx, "github.com/samber/lo")
 fmt.Println(pkg.Path, pkg.Synopsis) // clean strings, no Opt wrappers
 
 // A single symbol's documentation (token-efficient, no full package blob).
-sym, err := c.SymbolDoc(ctx, "github.com/samber/lo", "Map", pkggodev.WithExamples())
+sym, err := c.Symbol(ctx, "github.com/samber/lo", "Map", pkggodev.WithExamples())
 if errors.Is(err, pkggodev.ErrSymbolNotFound) {
 	// symbol does not exist in the package
 }
@@ -90,16 +90,17 @@ All take `context.Context` first and return clean, typed values:
 | `Packages(ctx, path, opts...)`   | `*PackagesResult`      |
 | `Module(ctx, path, opts...)`     | `*Module`              |
 | `Versions(ctx, path, opts...)`   | `*Page[ModuleVersion]` |
-| `Symbols(ctx, path, opts...)`    | `*Page[Symbol]`        |
-| `SymbolDoc(ctx, path, symbol, opts...)` | `*SymbolDoc`    |
+| `Symbols(ctx, path, opts...)`    | `*Page[SymbolInfo]`    |
+| `Symbol(ctx, path, symbol, opts...)` | `*Symbol`          |
 | `Vulns(ctx, path, opts...)`      | `*Page[Vulnerability]` |
 
-`SymbolDoc` returns the documentation of a single symbol (`func`, `type`, `method`, `var` or
-`const`) instead of the whole package doc blob — handy to keep token usage low. `symbol` is the
-exported identifier (`"Map"`) or `"Type.Method"` (`"Either.ForEach"`); matching is case-sensitive.
-The doc is derived client-side from the package documentation (always fetched as Markdown, so
-`WithDoc` is ignored here) and the method returns `ErrSymbolNotFound` when the symbol is absent.
-Pass `WithExamples` to include runnable examples.
+`Symbols` lists the package symbols as lightweight `SymbolInfo` values (name, kind, synopsis,
+parent). `Symbol` returns the full documentation of a single symbol (`func`, `type`, `method`,
+`var` or `const`) instead of the whole package doc blob — handy to keep token usage low. `symbol`
+is the exported identifier (`"Map"`) or `"Type.Method"` (`"Either.ForEach"`); matching is
+case-sensitive. The doc is derived client-side from the package documentation (always fetched as
+Markdown, so `WithDoc` is ignored here) and the method returns `ErrSymbolNotFound` when the symbol
+is absent. Pass `WithExamples` to include runnable examples.
 
 ### Call options
 

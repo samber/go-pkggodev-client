@@ -90,15 +90,15 @@ func docHandler(t *testing.T, query *map[string]string) http.HandlerFunc {
 	}
 }
 
-func TestSymbolDoc_Function(t *testing.T) {
+func TestSymbol_Function(t *testing.T) {
 	t.Parallel()
 	var q map[string]string
 	c := newClient(t, docHandler(t, &q))
 
-	sd, err := c.SymbolDoc(context.Background(), "github.com/samber/lo", "Assign")
+	sd, err := c.Symbol(context.Background(), "github.com/samber/lo", "Assign")
 	require.NoError(t, err)
 	assert.Equal(t, "markdown", q["doc"]) // always requested in Markdown form
-	assert.Equal(t, "Assign", sd.Symbol)
+	assert.Equal(t, "Assign", sd.Name)
 	assert.Equal(t, "github.com/samber/lo", sd.Path)
 	assert.Equal(t, "Function", sd.Kind)
 	assert.Equal(t, "func Assign[K comparable, V any, Map ~map[K]V](maps ...Map) Map", sd.Signature)
@@ -109,11 +109,11 @@ func TestSymbolDoc_Function(t *testing.T) {
 	assert.Empty(t, sd.Examples)
 }
 
-func TestSymbolDoc_Type(t *testing.T) {
+func TestSymbol_Type(t *testing.T) {
 	t.Parallel()
 	c := newClient(t, docHandler(t, nil))
 
-	sd, err := c.SymbolDoc(context.Background(), "github.com/samber/lo", "Entry")
+	sd, err := c.Symbol(context.Background(), "github.com/samber/lo", "Entry")
 	require.NoError(t, err)
 	assert.Equal(t, "Type", sd.Kind)
 	assert.Contains(t, sd.Signature, "type Entry[K comparable, V any] struct {")
@@ -121,50 +121,50 @@ func TestSymbolDoc_Type(t *testing.T) {
 	assert.Equal(t, "Entry defines a key/value pairs.", sd.Synopsis)
 }
 
-func TestSymbolDoc_TypeMethod(t *testing.T) {
+func TestSymbol_TypeMethod(t *testing.T) {
 	t.Parallel()
 	c := newClient(t, docHandler(t, nil))
 
-	sd, err := c.SymbolDoc(context.Background(), "github.com/samber/lo", "Either.ForEach")
+	sd, err := c.Symbol(context.Background(), "github.com/samber/lo", "Either.ForEach")
 	require.NoError(t, err)
 	assert.Equal(t, "Method", sd.Kind)
 	assert.Equal(t, "func (e Either[L, R]) ForEach(leftCb func(L), rightCb func(R))", sd.Signature)
 	assert.Equal(t, "ForEach executes the given side-effecting function.", sd.Synopsis)
 }
 
-func TestSymbolDoc_GroupedVariable(t *testing.T) {
+func TestSymbol_GroupedVariable(t *testing.T) {
 	t.Parallel()
 	c := newClient(t, docHandler(t, nil))
 
-	sd, err := c.SymbolDoc(context.Background(), "github.com/samber/lo", "UpperCaseLettersCharset")
+	sd, err := c.Symbol(context.Background(), "github.com/samber/lo", "UpperCaseLettersCharset")
 	require.NoError(t, err)
 	assert.Equal(t, "Variable", sd.Kind)
 	assert.Contains(t, sd.Signature, "var (")
 }
 
-func TestSymbolDoc_NotFound(t *testing.T) {
+func TestSymbol_NotFound(t *testing.T) {
 	t.Parallel()
 	c := newClient(t, docHandler(t, nil))
 
-	sd, err := c.SymbolDoc(context.Background(), "github.com/samber/lo", "DoesNotExist")
+	sd, err := c.Symbol(context.Background(), "github.com/samber/lo", "DoesNotExist")
 	require.ErrorIs(t, err, pkggodev.ErrSymbolNotFound)
 	assert.Nil(t, sd)
 }
 
-func TestSymbolDoc_CaseSensitive(t *testing.T) {
+func TestSymbol_CaseSensitive(t *testing.T) {
 	t.Parallel()
 	c := newClient(t, docHandler(t, nil))
 
-	_, err := c.SymbolDoc(context.Background(), "github.com/samber/lo", "assign")
+	_, err := c.Symbol(context.Background(), "github.com/samber/lo", "assign")
 	require.ErrorIs(t, err, pkggodev.ErrSymbolNotFound)
 }
 
-func TestSymbolDoc_WithExamples(t *testing.T) {
+func TestSymbol_WithExamples(t *testing.T) {
 	t.Parallel()
 	var q map[string]string
 	c := newClient(t, docHandler(t, &q))
 
-	sd, err := c.SymbolDoc(context.Background(), "github.com/samber/lo", "Entries", pkggodev.WithExamples())
+	sd, err := c.Symbol(context.Background(), "github.com/samber/lo", "Entries", pkggodev.WithExamples())
 	require.NoError(t, err)
 	assert.Equal(t, "true", q["examples"])
 	require.Len(t, sd.Examples, 1)
@@ -173,11 +173,11 @@ func TestSymbolDoc_WithExamples(t *testing.T) {
 	assert.Equal(t, "[{bar 2} {baz 3} {foo 1}]", sd.Examples[0].Output)
 }
 
-func TestSymbolDoc_WithoutExamples(t *testing.T) {
+func TestSymbol_WithoutExamples(t *testing.T) {
 	t.Parallel()
 	c := newClient(t, docHandler(t, nil))
 
-	sd, err := c.SymbolDoc(context.Background(), "github.com/samber/lo", "Entries")
+	sd, err := c.Symbol(context.Background(), "github.com/samber/lo", "Entries")
 	require.NoError(t, err)
 	assert.Empty(t, sd.Examples)
 	// Example code must not leak into the doc prose.

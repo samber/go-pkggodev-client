@@ -84,19 +84,20 @@ type Vulnerability struct {
 	FixedVersion string `json:"fixedVersion"`
 }
 
-// Symbol is one entry from a /symbols response.
-type Symbol struct {
+// SymbolInfo is one entry from a /symbols response: lightweight metadata about a
+// package symbol. Use Client.Symbol to fetch the full documentation of one symbol.
+type SymbolInfo struct {
 	Name     string `json:"name"`
 	Kind     string `json:"kind"`
 	Synopsis string `json:"synopsis"`
 	Parent   string `json:"parent"`
 }
 
-// SymbolDoc is the documentation of a single package symbol, derived client-side
-// from the package documentation. See Client.SymbolDoc.
-type SymbolDoc struct {
+// Symbol is the full documentation of a single package symbol, derived
+// client-side from the package documentation. See Client.Symbol.
+type Symbol struct {
 	Path      string    `json:"path"`
-	Symbol    string    `json:"symbol"`
+	Name      string    `json:"name"`
 	Kind      string    `json:"kind"` // Function, Method, Type, Variable or Constant.
 	Signature string    `json:"signature"`
 	Synopsis  string    `json:"synopsis,omitempty"`

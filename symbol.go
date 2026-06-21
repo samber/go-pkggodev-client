@@ -9,7 +9,7 @@ import (
 // documentation returned by pkg.go.dev in Markdown form (doc=markdown).
 //
 // The pkg.go.dev backend exposes no per-symbol documentation endpoint, so
-// SymbolDoc parses the package doc blob client-side. The parsing therefore
+// Client.Symbol parses the package doc blob client-side. The parsing therefore
 // depends on the upstream Markdown layout: section headers (## Functions, ...),
 // fenced ```go declaration blocks, prose paragraphs and #### Example sections.
 // It is isolated here and covered by fixture tests so any upstream format drift
@@ -41,16 +41,16 @@ type symbolEntry struct {
 	examples  []Example
 }
 
-// parseSymbolDoc extracts the documentation of symbol from a doc=markdown blob.
+// parseSymbol extracts the documentation of symbol from a doc=markdown blob.
 // It returns false when the symbol is not declared in the package.
-func parseSymbolDoc(md, symbol string, withExamples bool) (*SymbolDoc, bool) {
+func parseSymbol(md, symbol string, withExamples bool) (*Symbol, bool) {
 	entries := buildEntries(tokenizeDoc(md), withExamples)
 	for i := range entries {
 		if !slices.Contains(entries[i].names, symbol) {
 			continue
 		}
 		doc := strings.TrimSpace(strings.Join(entries[i].doc, "\n"))
-		return &SymbolDoc{
+		return &Symbol{
 			Kind:      entries[i].kind,
 			Signature: strings.TrimSpace(entries[i].signature),
 			Synopsis:  firstSentence(doc),
