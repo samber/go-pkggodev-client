@@ -55,7 +55,7 @@ func WithReadme() Option { return func(p *params) { p.readme = true } }
 // WithExcludePseudo drops majors whose latest version is a pseudo-version
 // (untagged commits). It reflects the ExcludePseudo flag of the proposed
 // pkg.go.dev MajorVersions endpoint (golang/go#76718) and applies to
-// MajorVersions/AllMajorVersions only.
+// MajorVersions only.
 func WithExcludePseudo() Option { return func(p *params) { p.excludePseudo = true } }
 
 func newParams(opts []Option) params {
