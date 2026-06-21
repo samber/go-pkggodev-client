@@ -10,8 +10,8 @@
 [![License](https://img.shields.io/github/license/samber/go-pkggodev-client)](./LICENSE)
 
 A typed Go client for the [pkg.go.dev](https://pkg.go.dev) API (the "Go Pkgsite API",
-`https://pkg.go.dev/v1beta`): search packages and symbols, read documentation, list versions,
-importers and known vulnerabilities.
+`https://pkg.go.dev/v1beta`): search packages and symbols, read documentation (whole package or a
+single symbol), list versions, importers and known vulnerabilities.
 
 The public API lives at the module root (`package pkggodev`): **context-first methods**,
 **functional options**, **clean typed results** (no codegen leakage) and **auto-paginating
@@ -42,6 +42,14 @@ if err != nil {
 // Single object.
 pkg, _ := c.Package(ctx, "github.com/samber/lo")
 fmt.Println(pkg.Path, pkg.Synopsis) // clean strings, no Opt wrappers
+
+// A single symbol's documentation (token-efficient, no full package blob).
+sym, err := c.Symbol(ctx, "github.com/samber/lo", "Map", pkggodev.WithExamples())
+if errors.Is(err, pkggodev.ErrSymbolNotFound) {
+	// symbol does not exist in the package
+}
+fmt.Println(sym.Kind, sym.Signature) // "Function", "func Map[...](...) ..."
+fmt.Println(sym.Synopsis)            // first sentence of the doc
 
 // One page.
 page, _ := c.Versions(ctx, "github.com/samber/lo", pkggodev.WithLimit(10))
@@ -82,8 +90,17 @@ All take `context.Context` first and return clean, typed values:
 | `Packages(ctx, path, opts...)`   | `*PackagesResult`      |
 | `Module(ctx, path, opts...)`     | `*Module`              |
 | `Versions(ctx, path, opts...)`   | `*Page[ModuleVersion]` |
-| `Symbols(ctx, path, opts...)`    | `*Page[Symbol]`        |
+| `Symbols(ctx, path, opts...)`    | `*Page[SymbolInfo]`    |
+| `Symbol(ctx, path, symbol, opts...)` | `*Symbol`          |
 | `Vulns(ctx, path, opts...)`      | `*Page[Vulnerability]` |
+
+`Symbols` lists the package symbols as lightweight `SymbolInfo` values (name, kind, synopsis,
+parent). `Symbol` returns the full documentation of a single symbol (`func`, `type`, `method`,
+`var` or `const`) instead of the whole package doc blob — handy to keep token usage low. `symbol`
+is the exported identifier (`"Map"`) or `"Type.Method"` (`"Either.ForEach"`); matching is
+case-sensitive. The doc is derived client-side from the package documentation (always fetched as
+Markdown, so `WithDoc` is ignored here) and the method returns `ErrSymbolNotFound` when the symbol
+is absent. Pass `WithExamples` to include runnable examples.
 
 ### Call options
 

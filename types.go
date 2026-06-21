@@ -84,12 +84,35 @@ type Vulnerability struct {
 	FixedVersion string `json:"fixedVersion"`
 }
 
-// Symbol is one entry from a /symbols response.
-type Symbol struct {
+// SymbolInfo is one entry from a /symbols response: lightweight metadata about a
+// package symbol. Use Client.Symbol to fetch the full documentation of one symbol.
+type SymbolInfo struct {
 	Name     string `json:"name"`
 	Kind     string `json:"kind"`
 	Synopsis string `json:"synopsis"`
 	Parent   string `json:"parent"`
+}
+
+// Symbol is the full documentation of a single package symbol, derived
+// client-side from the package documentation. See Client.Symbol.
+type Symbol struct {
+	Path      string    `json:"path"`
+	Name      string    `json:"name"`
+	Kind      string    `json:"kind"` // Function, Method, Type, Variable or Constant.
+	Signature string    `json:"signature"`
+	Synopsis  string    `json:"synopsis,omitempty"`
+	Doc       string    `json:"doc,omitempty"`
+	Examples  []Example `json:"examples,omitempty"` // Populated only when WithExamples is set.
+	Version   string    `json:"version,omitempty"`
+	Goos      string    `json:"goos,omitempty"`
+	Goarch    string    `json:"goarch,omitempty"`
+}
+
+// Example is a runnable example attached to a symbol.
+type Example struct {
+	Name   string `json:"name,omitempty"` // Suffix of "Example (name)", empty for a bare "Example".
+	Code   string `json:"code"`
+	Output string `json:"output,omitempty"`
 }
 
 // PackageInfo is one entry from a /packages response.

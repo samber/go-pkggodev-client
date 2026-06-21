@@ -2,6 +2,7 @@ package pkggodev
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/samber/go-pkggodev-client/internal/api"
 )
@@ -127,7 +128,7 @@ func (c *Client) Versions(ctx context.Context, path string, opts ...Option) (*Pa
 }
 
 // Symbols lists the exported symbols of the package at path.
-func (c *Client) Symbols(ctx context.Context, path string, opts ...Option) (*Page[Symbol], error) {
+func (c *Client) Symbols(ctx context.Context, path string, opts ...Option) (*Page[SymbolInfo], error) {
 	p := newParams(opts)
 	res, err := c.raw.GetSymbols(ctx, api.GetSymbolsParams{
 		Path:    path,
@@ -142,11 +143,44 @@ func (c *Client) Symbols(ctx context.Context, path string, opts ...Option) (*Pag
 	if err != nil {
 		return nil, err
 	}
-	page, err := decodePage[Symbol](res.Symbols.Value)
+	page, err := decodePage[SymbolInfo](res.Symbols.Value)
 	if err != nil {
 		return nil, err
 	}
 	return &page, nil
+}
+
+// Symbol returns the full documentation of a single symbol of the package at path.
+// symbol is the exported identifier (e.g. "Map") or "Type.Method" (e.g. "Either.ForEach");
+// matching is case-sensitive. WithExamples includes runnable examples.
+//
+// The documentation is derived client-side from the package documentation, which is always
+// requested in Markdown form, so WithDoc has no effect here. It returns ErrSymbolNotFound when
+// the symbol is absent from the package.
+func (c *Client) Symbol(ctx context.Context, path, symbol string, opts ...Option) (*Symbol, error) {
+	p := newParams(opts)
+	res, err := c.raw.GetPackage(ctx, api.GetPackageParams{
+		Path:     path,
+		Module:   optStr(p.module),
+		Version:  optStr(p.version),
+		Goos:     optStr(p.goos),
+		Goarch:   optStr(p.goarch),
+		Doc:      api.NewOptString("markdown"),
+		Examples: optBool(p.examples),
+	})
+	if err != nil {
+		return nil, err
+	}
+	sym, ok := parseSymbol(res.Docs.Value, symbol, p.examples)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrSymbolNotFound, symbol)
+	}
+	sym.Path = path
+	sym.Name = symbol
+	sym.Version = res.Version.Value
+	sym.Goos = res.Goos.Value
+	sym.Goarch = res.Goarch.Value
+	return sym, nil
 }
 
 // Vulns lists known vulnerabilities for the module or package at path.

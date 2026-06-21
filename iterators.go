@@ -73,11 +73,11 @@ func (c *Client) AllVulns(ctx context.Context, path string, opts ...Option) iter
 }
 
 // AllSymbols iterates all exported symbols of the package at path.
-func (c *Client) AllSymbols(ctx context.Context, path string, opts ...Option) iter.Seq2[Symbol, error] {
-	return paginate(func(token string) (Page[Symbol], error) {
+func (c *Client) AllSymbols(ctx context.Context, path string, opts ...Option) iter.Seq2[SymbolInfo, error] {
+	return paginate(func(token string) (Page[SymbolInfo], error) {
 		p, err := c.Symbols(ctx, path, withToken(opts, token)...)
 		if err != nil {
-			return Page[Symbol]{}, err
+			return Page[SymbolInfo]{}, err
 		}
 		return *p, nil
 	})
