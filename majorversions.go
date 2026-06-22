@@ -35,6 +35,38 @@ func majorNum(v string) int {
 	return n
 }
 
+// normalizeBase strips a trailing major-version suffix from modulePath and
+// reports whether it uses the gopkg.in ".vN" convention. It is deterministic and
+// does not depend on golang.org/x/mod's path parsing.
+func normalizeBase(modulePath string) (base string, gopkgIn, ok bool) {
+	p := strings.TrimSuffix(strings.TrimSpace(modulePath), "/")
+	if p == "" {
+		return "", false, false
+	}
+	if strings.HasPrefix(p, "gopkg.in/") {
+		if i := strings.LastIndex(p, ".v"); i >= 0 && isAllDigits(p[i+2:]) {
+			p = p[:i]
+		}
+		return p, true, true
+	}
+	if i := strings.LastIndex(p, "/v"); i >= 0 && isAllDigits(p[i+2:]) {
+		p = p[:i]
+	}
+	return p, false, true
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // MajorVersions discovers the major versions of the module at modulePath.
 //
 // In Go, majors beyond v1 live as separate modules (path, path/v2, path/v3...),
@@ -60,16 +92,21 @@ func (c *Client) MajorVersions(ctx context.Context, modulePath string, opts ...O
 		return nil, ErrProxyDisabled
 	}
 
-	base, _, ok := module.SplitPathVersion(strings.TrimSuffix(modulePath, "/"))
-	if !ok || base == "" {
+	// Validate the caller-supplied path up front (it flows into proxy request
+	// URLs): EscapePath rejects schemes, "..", and other unclean paths. gopkg.in
+	// paths are only valid with their ".vN" suffix, so this validates the full
+	// input rather than the stripped base.
+	clean := strings.TrimSuffix(strings.TrimSpace(modulePath), "/")
+	if _, err := module.EscapePath(clean); err != nil {
 		return nil, fmt.Errorf("%w: %q", ErrInvalidModulePath, modulePath)
 	}
-	if _, err := module.EscapePath(base); err != nil {
+	base, gopkgIn, ok := normalizeBase(clean)
+	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrInvalidModulePath, modulePath)
 	}
 
 	majors := map[int]MajorVersion{}
-	if strings.HasPrefix(base, "gopkg.in/") {
+	if gopkgIn {
 		// gopkg.in encodes the major in the path itself (pkg.vN) with no shared
 		// base path, so every major is probed independently from v1.
 		if err := c.discoverGopkgInMajors(ctx, base, majors); err != nil {
