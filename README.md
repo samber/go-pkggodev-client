@@ -77,6 +77,8 @@ func New(opts ...ClientOption) (*Client, error)
 - `WithBaseURL(url)` — override the API base URL.
 - `WithHTTPClient(*http.Client)` — custom timeouts / transport.
 - `WithUserAgent(string)` — set the `User-Agent` header.
+- `WithGoproxy(string)` — override the module proxy list used by `MajorVersions` (same syntax as the
+  `GOPROXY` env var; honored by default, defaulting to `https://proxy.golang.org`).
 
 ### Methods
 
@@ -93,6 +95,7 @@ All take `context.Context` first and return clean, typed values:
 | `Symbols(ctx, path, opts...)`    | `*Page[SymbolInfo]`    |
 | `Symbol(ctx, path, symbol, opts...)` | `*Symbol`          |
 | `Vulns(ctx, path, opts...)`      | `*Page[Vulnerability]` |
+| `MajorVersions(ctx, modulePath, opts...)` | `*Page[MajorVersion]` |
 
 `Symbols` lists the package symbols as lightweight `SymbolInfo` values (name, kind, synopsis,
 parent). `Symbol` returns the full documentation of a single symbol (`func`, `type`, `method`,
@@ -102,11 +105,37 @@ case-sensitive. The doc is derived client-side from the package documentation (a
 Markdown, so `WithDoc` is ignored here) and the method returns `ErrSymbolNotFound` when the symbol
 is absent. Pass `WithExamples` to include runnable examples.
 
+### Major versions
+
+In Go, major versions beyond v1 live as **separate modules** (`path`, `path/v2`, `path/v3`…) and
+can be **non-contiguous** (e.g. v1, v2, v4, v6). `pkg.go.dev` does not yet expose a `MajorVersions`
+endpoint ([golang/go#76718](https://github.com/golang/go/issues/76718)), so `MajorVersions` derives
+the answer from the **Go module proxy** — honoring `GOPROXY` (see `WithGoproxy`). It lists the
+tagged versions of the base path (which yields v0, v1 and any `+incompatible` majors that share it)
+and probes `path/vN` for higher majors. `gopkg.in/pkg.vN` paths are supported too.
+
+```go
+page, _ := c.MajorVersions(ctx, "github.com/samber/do")
+for _, mv := range page.Items {
+	fmt.Println(mv.Major, mv.ModulePath, mv.Version, mv.IsLatest)
+	// v2 github.com/samber/do/v2 v2.0.0 true
+	// v1 github.com/samber/do    v1.6.0 false
+}
+```
+
+Each `MajorVersion` carries its own `ModulePath`, the `Major` (`"v2"`), the latest `Version` in that
+major, and `IsLatest` for the highest major. Results are sorted newest-major-first. The module proxy
+has no pagination cursor, so the result is a single page. `WithExcludePseudo` drops majors whose
+latest version is a pseudo-version (reflecting `ExcludePseudo` from the proposal); `WithLimit` caps
+the number of returned majors (the proposal's `Max`); `WithFilter` matches each major's module path.
+`MajorVersions` returns `ErrProxyDisabled` when `GOPROXY` is `off`/`direct`-only and
+`ErrInvalidModulePath` for an unparsable path.
+
 ### Call options
 
 `WithVersion`, `WithModule`, `WithLimit`, `WithToken`, `WithFilter`, `WithGOOS`, `WithGOARCH`,
-`WithDoc`, `WithQuery`, `WithSymbol`, `WithExamples`, `WithImports`, `WithLicenses`, `WithReadme`.
-Each method ignores options that do not apply to it.
+`WithDoc`, `WithQuery`, `WithSymbol`, `WithExamples`, `WithImports`, `WithLicenses`, `WithReadme`,
+`WithExcludePseudo`. Each method ignores options that do not apply to it.
 
 ### Iterators (auto-pagination)
 

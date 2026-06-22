@@ -7,7 +7,7 @@ type Option func(*params)
 type params struct {
 	version, module, filter, token, goos, goarch, doc, query, symbol string
 	limit                                                            int
-	examples, imports, licenses, readme                              bool
+	examples, imports, licenses, readme, excludePseudo               bool
 }
 
 // WithVersion selects a module version (semver, "latest", "master" or "main").
@@ -51,6 +51,12 @@ func WithLicenses() Option { return func(p *params) { p.licenses = true } }
 
 // WithReadme includes the README in the result (Module only).
 func WithReadme() Option { return func(p *params) { p.readme = true } }
+
+// WithExcludePseudo drops majors whose latest version is a pseudo-version
+// (untagged commits). It reflects the ExcludePseudo flag of the proposed
+// pkg.go.dev MajorVersions endpoint (golang/go#76718) and applies to
+// MajorVersions only.
+func WithExcludePseudo() Option { return func(p *params) { p.excludePseudo = true } }
 
 func newParams(opts []Option) params {
 	var p params

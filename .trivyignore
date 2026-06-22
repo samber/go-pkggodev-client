@@ -1,0 +1,10 @@
+# Trivy ignore file.
+#
+# Referenced by .github/workflows/security.yml (trivyignores: ".trivyignore").
+# List vulnerability IDs (one per line, optionally with an expiry date) to
+# suppress known/accepted findings, e.g.:
+#
+#   CVE-2024-12345 exp:2026-12-31
+#
+# Keep empty when there is nothing to suppress; the scanner requires the file to
+# exist.

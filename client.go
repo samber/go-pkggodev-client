@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/samber/go-pkggodev-client/internal/api"
+	"github.com/samber/go-pkggodev-client/internal/proxy"
 )
 
 // DefaultBaseURL is the production pkg.go.dev API base URL.
@@ -15,7 +16,8 @@ const DefaultBaseURL = api.DefaultBaseURL
 
 // Client is the pkg.go.dev API api.
 type Client struct {
-	raw *api.Client
+	raw   *api.Client
+	proxy *proxy.Client
 }
 
 // ClientOption configures the Client built by New.
@@ -25,6 +27,7 @@ type clientConfig struct {
 	baseURL   string
 	http      *http.Client
 	userAgent string
+	goproxy   string
 }
 
 // WithBaseURL overrides the API base URL.
@@ -35,6 +38,13 @@ func WithHTTPClient(h *http.Client) ClientOption { return func(c *clientConfig) 
 
 // WithUserAgent sets the User-Agent header sent on every request.
 func WithUserAgent(ua string) ClientOption { return func(c *clientConfig) { c.userAgent = ua } }
+
+// WithGoproxy overrides the module proxy list used by MajorVersions. The value
+// uses the same syntax as the GOPROXY environment variable (a "," or "|"
+// separated list of base URLs, plus the keywords "direct" and "off"). When
+// unset, the client honors the GOPROXY environment variable, defaulting to
+// https://proxy.golang.org.
+func WithGoproxy(s string) ClientOption { return func(c *clientConfig) { c.goproxy = s } }
 
 // New builds a pkg.go.dev client with sane defaults.
 func New(opts ...ClientOption) (*Client, error) {
@@ -47,6 +57,10 @@ func New(opts ...ClientOption) (*Client, error) {
 		api.WithBaseURL(cfg.baseURL),
 		api.WithUserAgent(cfg.userAgent),
 	}
+	httpClient := cfg.http
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
 	if cfg.http != nil {
 		raw = append(raw, api.WithHTTPClient(cfg.http))
 	}
@@ -55,5 +69,8 @@ func New(opts ...ClientOption) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{raw: c}, nil
+	return &Client{
+		raw:   c,
+		proxy: proxy.New(httpClient, cfg.userAgent, proxy.ResolveGoproxy(cfg.goproxy)),
+	}, nil
 }
