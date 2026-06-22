@@ -62,7 +62,13 @@ func moduleVersion() string {
 // (keep-alive) connections. The global transport is cloned rather than mutated
 // so other users of http.DefaultTransport are unaffected.
 func newPooledHTTPClient() *http.Client {
-	t := http.DefaultTransport.(*http.Transport).Clone()
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		// http.DefaultTransport is always *http.Transport, but fall back to a
+		// plain client rather than panic if that ever changes.
+		return &http.Client{}
+	}
+	t := base.Clone()
 	t.MaxIdleConns = DefaultMaxIdleConns
 	t.MaxIdleConnsPerHost = DefaultMaxIdleConns
 	return &http.Client{Transport: t}
