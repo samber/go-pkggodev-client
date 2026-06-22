@@ -64,6 +64,9 @@ func (c *Client) MajorVersions(ctx context.Context, modulePath string, opts ...O
 	if !ok || base == "" {
 		return nil, fmt.Errorf("%w: %q", ErrInvalidModulePath, modulePath)
 	}
+	if _, err := module.EscapePath(base); err != nil {
+		return nil, fmt.Errorf("%w: %q", ErrInvalidModulePath, modulePath)
+	}
 
 	majors := map[int]MajorVersion{}
 	if strings.HasPrefix(base, "gopkg.in/") {
