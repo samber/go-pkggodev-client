@@ -1,19 +1,43 @@
-package pkggodev
+// Package godoc derives the documentation of a single symbol from the package
+// documentation returned by pkg.go.dev in Markdown form (doc=markdown).
+//
+// The pkg.go.dev backend exposes no per-symbol documentation endpoint, so the
+// package doc blob is parsed client-side. The parsing therefore depends on the
+// upstream Markdown layout: section headers (## Functions, ...), fenced ```go
+// declaration blocks, prose paragraphs and #### Example sections. It is isolated
+// here and covered by fixture tests so any upstream format drift is caught
+// quickly.
+package godoc
 
 import (
 	"slices"
 	"strings"
 )
 
-// This file derives the documentation of a single symbol from the package
-// documentation returned by pkg.go.dev in Markdown form (doc=markdown).
-//
-// The pkg.go.dev backend exposes no per-symbol documentation endpoint, so
-// Client.Symbol parses the package doc blob client-side. The parsing therefore
-// depends on the upstream Markdown layout: section headers (## Functions, ...),
-// fenced ```go declaration blocks, prose paragraphs and #### Example sections.
-// It is isolated here and covered by fixture tests so any upstream format drift
-// is caught quickly.
+// Symbol kinds.
+const (
+	KindFunction = "Function"
+	KindMethod   = "Method"
+	KindType     = "Type"
+	KindVariable = "Variable"
+	KindConstant = "Constant"
+)
+
+// Symbol is the parsed documentation of a single package symbol.
+type Symbol struct {
+	Kind      string // Function, Method, Type, Variable or Constant.
+	Signature string
+	Synopsis  string
+	Doc       string
+	Examples  []Example
+}
+
+// Example is a runnable example attached to a symbol.
+type Example struct {
+	Name   string
+	Code   string
+	Output string
+}
 
 // tokenKind classifies a line-level token of the Markdown doc blob.
 type tokenKind int
@@ -41,16 +65,16 @@ type symbolEntry struct {
 	examples  []Example
 }
 
-// parseSymbol extracts the documentation of symbol from a doc=markdown blob.
-// It returns false when the symbol is not declared in the package.
-func parseSymbol(md, symbol string, withExamples bool) (*Symbol, bool) {
+// Parse extracts the documentation of symbol from a doc=markdown blob. It returns
+// false when the symbol is not declared in the package.
+func Parse(md, symbol string, withExamples bool) (Symbol, bool) {
 	entries := buildEntries(tokenizeDoc(md), withExamples)
 	for i := range entries {
 		if !slices.Contains(entries[i].names, symbol) {
 			continue
 		}
 		doc := strings.TrimSpace(strings.Join(entries[i].doc, "\n"))
-		return &Symbol{
+		return Symbol{
 			Kind:      entries[i].kind,
 			Signature: strings.TrimSpace(entries[i].signature),
 			Synopsis:  firstSentence(doc),
@@ -58,7 +82,7 @@ func parseSymbol(md, symbol string, withExamples bool) (*Symbol, bool) {
 			Examples:  entries[i].examples,
 		}, true
 	}
-	return nil, false
+	return Symbol{}, false
 }
 
 // tokenizeDoc splits the Markdown blob into line-level tokens.
@@ -180,15 +204,15 @@ func declNames(code, section string) ([]string, string) {
 	line := strings.TrimSpace(firstNonEmptyLine(code))
 	switch {
 	case strings.HasPrefix(line, "func ("):
-		return []string{methodName(line)}, "Method"
+		return []string{methodName(line)}, KindMethod
 	case strings.HasPrefix(line, "func "):
-		return []string{identAfter(line, "func ")}, "Function"
+		return []string{identAfter(line, "func ")}, KindFunction
 	case strings.HasPrefix(line, "type "):
-		return []string{identAfter(line, "type ")}, "Type"
+		return []string{identAfter(line, "type ")}, KindType
 	case strings.HasPrefix(line, "var "):
-		return varConstNames(code, line, "var"), "Variable"
+		return varConstNames(code, line, "var"), KindVariable
 	case strings.HasPrefix(line, "const "):
-		return varConstNames(code, line, "const"), "Constant"
+		return varConstNames(code, line, "const"), KindConstant
 	}
 	return nil, kindFromSection(section)
 }
@@ -306,13 +330,13 @@ func exampleName(line string) string {
 func kindFromSection(section string) string {
 	switch section {
 	case "Functions":
-		return "Function"
+		return KindFunction
 	case "Types":
-		return "Type"
+		return KindType
 	case "Variables":
-		return "Variable"
+		return KindVariable
 	case "Constants":
-		return "Constant"
+		return KindConstant
 	}
 	return ""
 }

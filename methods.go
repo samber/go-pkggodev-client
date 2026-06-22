@@ -2,9 +2,13 @@ package pkggodev
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"regexp"
 
 	"github.com/samber/go-pkggodev-client/internal/api"
+	"github.com/samber/go-pkggodev-client/internal/godoc"
+	"github.com/samber/go-pkggodev-client/internal/majors"
 )
 
 // Search finds packages and symbols. Use WithQuery and/or WithSymbol.
@@ -171,16 +175,34 @@ func (c *Client) Symbol(ctx context.Context, path, symbol string, opts ...Option
 	if err != nil {
 		return nil, err
 	}
-	sym, ok := parseSymbol(res.Docs.Value, symbol, p.examples)
+	parsed, ok := godoc.Parse(res.Docs.Value, symbol, p.examples)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSymbolNotFound, symbol)
 	}
-	sym.Path = path
-	sym.Name = symbol
-	sym.Version = res.Version.Value
-	sym.Goos = res.Goos.Value
-	sym.Goarch = res.Goarch.Value
-	return sym, nil
+	return &Symbol{
+		Path:      path,
+		Name:      symbol,
+		Kind:      parsed.Kind,
+		Signature: parsed.Signature,
+		Synopsis:  parsed.Synopsis,
+		Doc:       parsed.Doc,
+		Examples:  toExamples(parsed.Examples),
+		Version:   res.Version.Value,
+		Goos:      res.Goos.Value,
+		Goarch:    res.Goarch.Value,
+	}, nil
+}
+
+// toExamples maps internal godoc examples to the public Example type.
+func toExamples(in []godoc.Example) []Example {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]Example, 0, len(in))
+	for _, e := range in {
+		out = append(out, Example{Name: e.Name, Code: e.Code, Output: e.Output})
+	}
+	return out
 }
 
 // Vulns lists known vulnerabilities for the module or package at path.
@@ -202,4 +224,57 @@ func (c *Client) Vulns(ctx context.Context, path string, opts ...Option) (*Page[
 		return nil, err
 	}
 	return &page, nil
+}
+
+// MajorVersions discovers the major versions of the module at modulePath.
+//
+// In Go, majors beyond v1 live as separate modules (path, path/v2, path/v3...)
+// and can be non-contiguous. pkg.go.dev does not (yet) expose a MajorVersions
+// endpoint (golang/go#76718), so this derives the answer from the module proxy
+// (honoring GOPROXY, see WithGoproxy). modulePath may already carry a major
+// suffix (path/v2 or gopkg.in/pkg.v2); it is normalized to the base path first.
+//
+// WithExcludePseudo drops majors whose latest version is a pseudo-version.
+// WithFilter applies a regular expression to each major's module path. WithLimit
+// caps the number of returned majors (the proposal's Max), keeping the most
+// recent ones. The module proxy has no pagination cursor, so the result is always
+// a single page (NextToken is empty); Total is the count before WithLimit.
+func (c *Client) MajorVersions(ctx context.Context, modulePath string, opts ...Option) (*Page[MajorVersion], error) {
+	p := newParams(opts)
+	if !c.proxy.Enabled() {
+		return nil, ErrProxyDisabled
+	}
+
+	found, err := majors.Discover(ctx, c.proxy, modulePath, p.excludePseudo)
+	if err != nil {
+		if errors.Is(err, majors.ErrInvalidModulePath) {
+			return nil, fmt.Errorf("%w: %q", ErrInvalidModulePath, modulePath)
+		}
+		return nil, err
+	}
+
+	var re *regexp.Regexp
+	if p.filter != "" {
+		if re, err = regexp.Compile(p.filter); err != nil {
+			return nil, fmt.Errorf("invalid filter: %w", err)
+		}
+	}
+
+	// found is sorted newest-major-first by the majors package.
+	items := make([]MajorVersion, 0, len(found))
+	for _, m := range found {
+		if re != nil && !re.MatchString(m.ModulePath) {
+			continue
+		}
+		items = append(items, MajorVersion{ModulePath: m.ModulePath, Major: m.Major, Version: m.Version})
+	}
+	if len(items) > 0 {
+		items[0].IsLatest = true
+	}
+
+	total := len(items)
+	if p.limit > 0 && len(items) > p.limit {
+		items = items[:p.limit]
+	}
+	return &Page[MajorVersion]{Items: items, Total: total}, nil
 }

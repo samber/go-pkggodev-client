@@ -1,4 +1,4 @@
-package pkggodev
+package majors
 
 import "testing"
 
