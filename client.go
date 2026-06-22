@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"runtime/debug"
 
 	"github.com/samber/go-singleflightx"
 
@@ -18,6 +19,37 @@ import (
 
 // DefaultBaseURL is the production pkg.go.dev API base URL.
 const DefaultBaseURL = api.DefaultBaseURL
+
+// modulePath is this module's import path, used to look up its own version in
+// the build info embedded by the Go toolchain.
+const modulePath = "github.com/samber/go-pkggodev-client"
+
+// defaultUserAgent is the User-Agent sent on every request unless overridden
+// with WithUserAgent. It carries this module's version, e.g.
+// "samber/go-pkggodev-client/v1.2.3".
+var defaultUserAgent = "samber/go-pkggodev-client/" + moduleVersion()
+
+// moduleVersion reports this module's version from the build info embedded by
+// the Go toolchain. It returns "unknown" when the version is unavailable (e.g.
+// a local checkout built without module versioning, where Main.Version is
+// "(devel)").
+func moduleVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "unknown"
+	}
+	// Imported as a dependency, this module appears in Deps; when its own tests
+	// or binaries run, it is the main module.
+	if info.Main.Path == modulePath && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	for _, dep := range info.Deps {
+		if dep.Path == modulePath && dep.Version != "" {
+			return dep.Version
+		}
+	}
+	return "unknown"
+}
 
 // ErrSymbolNotFound is returned by Client.Symbol when the requested symbol is
 // absent from the package documentation.
@@ -93,7 +125,7 @@ func WithGoproxy(s string) ClientOption { return func(c *clientConfig) { c.gopro
 
 // New builds a pkg.go.dev client with sane defaults.
 func New(opts ...ClientOption) (*Client, error) {
-	cfg := clientConfig{baseURL: DefaultBaseURL, userAgent: "go-pkggodev-client"}
+	cfg := clientConfig{baseURL: DefaultBaseURL, userAgent: defaultUserAgent}
 	for _, o := range opts {
 		o(&cfg)
 	}
