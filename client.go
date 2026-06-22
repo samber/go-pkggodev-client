@@ -6,9 +6,13 @@ package pkggodev
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
+	"github.com/samber/go-singleflightx"
+
 	"github.com/samber/go-pkggodev-client/internal/api"
+	"github.com/samber/go-pkggodev-client/internal/majors"
 	"github.com/samber/go-pkggodev-client/internal/proxy"
 )
 
@@ -31,6 +35,34 @@ var ErrProxyDisabled = errors.New("pkggodev: no usable module proxy (GOPROXY)")
 type Client struct {
 	raw   *api.Client
 	proxy *proxy.Client
+	sf    singleflightGroups
+}
+
+// singleflightGroups deduplicates concurrent, identical external calls: when
+// several goroutines request the same endpoint with the same parameters at the
+// same time, only one in-flight request hits the network (or the module proxy)
+// and every caller receives the shared result.
+//
+// Each endpoint gets its own group typed on its return value, keyed by a string
+// derived from the request parameters (see sfKey).
+type singleflightGroups struct {
+	search        singleflightx.Group[string, *Page[SearchResult]]
+	pkg           singleflightx.Group[string, *Package]
+	importedBy    singleflightx.Group[string, *ImportedByResult]
+	packages      singleflightx.Group[string, *PackagesResult]
+	module        singleflightx.Group[string, *Module]
+	versions      singleflightx.Group[string, *Page[ModuleVersion]]
+	symbols       singleflightx.Group[string, *Page[SymbolInfo]]
+	symbol        singleflightx.Group[string, *Symbol]
+	vulns         singleflightx.Group[string, *Page[Vulnerability]]
+	majorVersions singleflightx.Group[string, []majors.Major]
+}
+
+// sfKey builds a singleflight deduplication key from an endpoint name and its
+// request parameters. The parameter structs are comparable value types, so
+// their %+v rendering is a stable identity for the request.
+func sfKey(endpoint string, params ...any) string {
+	return fmt.Sprintf("%s:%+v", endpoint, params)
 }
 
 // ClientOption configures the Client built by New.

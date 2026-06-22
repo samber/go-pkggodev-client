@@ -14,27 +14,31 @@ import (
 // Search finds packages and symbols. Use WithQuery and/or WithSymbol.
 func (c *Client) Search(ctx context.Context, opts ...Option) (*Page[SearchResult], error) {
 	p := newParams(opts)
-	res, err := c.raw.GetSearch(ctx, api.GetSearchParams{
+	params := api.GetSearchParams{
 		Q:      optStr(p.query),
 		Symbol: optStr(p.symbol),
 		Limit:  optInt(p.limit),
 		Token:  optStr(p.token),
 		Filter: optStr(p.filter),
+	}
+	v, err, _ := c.sf.search.Do(sfKey("search", params), func() (*Page[SearchResult], error) {
+		res, err := c.raw.GetSearch(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		page, err := decodePage[SearchResult](*res)
+		if err != nil {
+			return nil, err
+		}
+		return &page, nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	page, err := decodePage[SearchResult](*res)
-	if err != nil {
-		return nil, err
-	}
-	return &page, nil
+	return v, err
 }
 
 // Package returns documentation and metadata for the package at path.
 func (c *Client) Package(ctx context.Context, path string, opts ...Option) (*Package, error) {
 	p := newParams(opts)
-	res, err := c.raw.GetPackage(ctx, api.GetPackageParams{
+	params := api.GetPackageParams{
 		Path:     path,
 		Module:   optStr(p.module),
 		Version:  optStr(p.version),
@@ -44,97 +48,117 @@ func (c *Client) Package(ctx context.Context, path string, opts ...Option) (*Pac
 		Examples: optBool(p.examples),
 		Imports:  optBool(p.imports),
 		Licenses: optBool(p.licenses),
-	})
-	if err != nil {
-		return nil, err
 	}
-	return toPackage(res), nil
+	v, err, _ := c.sf.pkg.Do(sfKey("package", params), func() (*Package, error) {
+		res, err := c.raw.GetPackage(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		return toPackage(res), nil
+	})
+	return v, err
 }
 
 // ImportedBy lists the packages that import the package at path.
 func (c *Client) ImportedBy(ctx context.Context, path string, opts ...Option) (*ImportedByResult, error) {
 	p := newParams(opts)
-	res, err := c.raw.GetImportedBy(ctx, api.GetImportedByParams{
+	params := api.GetImportedByParams{
 		Path:    path,
 		Module:  optStr(p.module),
 		Version: optStr(p.version),
 		Limit:   optInt(p.limit),
 		Token:   optStr(p.token),
 		Filter:  optStr(p.filter),
+	}
+	v, err, _ := c.sf.importedBy.Do(sfKey("importedBy", params), func() (*ImportedByResult, error) {
+		res, err := c.raw.GetImportedBy(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		page, err := decodePage[string](res.ImportedBy.Value)
+		if err != nil {
+			return nil, err
+		}
+		return &ImportedByResult{ModulePath: res.ModulePath.Value, Version: res.Version.Value, Packages: page}, nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	page, err := decodePage[string](res.ImportedBy.Value)
-	if err != nil {
-		return nil, err
-	}
-	return &ImportedByResult{ModulePath: res.ModulePath.Value, Version: res.Version.Value, Packages: page}, nil
+	return v, err
 }
 
 // Packages lists the packages contained in the module at path.
 func (c *Client) Packages(ctx context.Context, path string, opts ...Option) (*PackagesResult, error) {
 	p := newParams(opts)
-	res, err := c.raw.GetPackages(ctx, api.GetPackagesParams{
+	params := api.GetPackagesParams{
 		Path:    path,
 		Version: optStr(p.version),
 		Limit:   optInt(p.limit),
 		Token:   optStr(p.token),
 		Filter:  optStr(p.filter),
+	}
+	v, err, _ := c.sf.packages.Do(sfKey("packages", params), func() (*PackagesResult, error) {
+		res, err := c.raw.GetPackages(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		page, err := decodePage[PackageInfo](res.Packages.Value)
+		if err != nil {
+			return nil, err
+		}
+		return &PackagesResult{
+			ModulePath:        res.ModulePath.Value,
+			Version:           res.Version.Value,
+			IsStandardLibrary: res.IsStandardLibrary.Value,
+			Packages:          page,
+		}, nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	page, err := decodePage[PackageInfo](res.Packages.Value)
-	if err != nil {
-		return nil, err
-	}
-	return &PackagesResult{
-		ModulePath:        res.ModulePath.Value,
-		Version:           res.Version.Value,
-		IsStandardLibrary: res.IsStandardLibrary.Value,
-		Packages:          page,
-	}, nil
+	return v, err
 }
 
 // Module returns metadata for the module at path.
 func (c *Client) Module(ctx context.Context, path string, opts ...Option) (*Module, error) {
 	p := newParams(opts)
-	res, err := c.raw.GetModule(ctx, api.GetModuleParams{
+	params := api.GetModuleParams{
 		Path:     path,
 		Version:  optStr(p.version),
 		Licenses: optBool(p.licenses),
 		Readme:   optBool(p.readme),
-	})
-	if err != nil {
-		return nil, err
 	}
-	return toModule(res), nil
+	v, err, _ := c.sf.module.Do(sfKey("module", params), func() (*Module, error) {
+		res, err := c.raw.GetModule(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		return toModule(res), nil
+	})
+	return v, err
 }
 
 // Versions lists the versions of the module at path.
 func (c *Client) Versions(ctx context.Context, path string, opts ...Option) (*Page[ModuleVersion], error) {
 	p := newParams(opts)
-	res, err := c.raw.GetVersions(ctx, api.GetVersionsParams{
+	params := api.GetVersionsParams{
 		Path:   path,
 		Limit:  optInt(p.limit),
 		Token:  optStr(p.token),
 		Filter: optStr(p.filter),
+	}
+	v, err, _ := c.sf.versions.Do(sfKey("versions", params), func() (*Page[ModuleVersion], error) {
+		res, err := c.raw.GetVersions(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		page, err := decodePage[ModuleVersion](*res)
+		if err != nil {
+			return nil, err
+		}
+		return &page, nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	page, err := decodePage[ModuleVersion](*res)
-	if err != nil {
-		return nil, err
-	}
-	return &page, nil
+	return v, err
 }
 
 // Symbols lists the exported symbols of the package at path.
 func (c *Client) Symbols(ctx context.Context, path string, opts ...Option) (*Page[SymbolInfo], error) {
 	p := newParams(opts)
-	res, err := c.raw.GetSymbols(ctx, api.GetSymbolsParams{
+	params := api.GetSymbolsParams{
 		Path:    path,
 		Module:  optStr(p.module),
 		Version: optStr(p.version),
@@ -143,15 +167,19 @@ func (c *Client) Symbols(ctx context.Context, path string, opts ...Option) (*Pag
 		Limit:   optInt(p.limit),
 		Token:   optStr(p.token),
 		Filter:  optStr(p.filter),
+	}
+	v, err, _ := c.sf.symbols.Do(sfKey("symbols", params), func() (*Page[SymbolInfo], error) {
+		res, err := c.raw.GetSymbols(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		page, err := decodePage[SymbolInfo](res.Symbols.Value)
+		if err != nil {
+			return nil, err
+		}
+		return &page, nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	page, err := decodePage[SymbolInfo](res.Symbols.Value)
-	if err != nil {
-		return nil, err
-	}
-	return &page, nil
+	return v, err
 }
 
 // Symbol returns the full documentation of a single symbol of the package at path.
@@ -163,7 +191,7 @@ func (c *Client) Symbols(ctx context.Context, path string, opts ...Option) (*Pag
 // the symbol is absent from the package.
 func (c *Client) Symbol(ctx context.Context, path, symbol string, opts ...Option) (*Symbol, error) {
 	p := newParams(opts)
-	res, err := c.raw.GetPackage(ctx, api.GetPackageParams{
+	params := api.GetPackageParams{
 		Path:     path,
 		Module:   optStr(p.module),
 		Version:  optStr(p.version),
@@ -171,26 +199,30 @@ func (c *Client) Symbol(ctx context.Context, path, symbol string, opts ...Option
 		Goarch:   optStr(p.goarch),
 		Doc:      api.NewOptString("markdown"),
 		Examples: optBool(p.examples),
+	}
+	v, err, _ := c.sf.symbol.Do(sfKey("symbol", params, symbol), func() (*Symbol, error) {
+		res, err := c.raw.GetPackage(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		parsed, ok := godoc.Parse(res.Docs.Value, symbol, p.examples)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", ErrSymbolNotFound, symbol)
+		}
+		return &Symbol{
+			Path:      path,
+			Name:      symbol,
+			Kind:      parsed.Kind,
+			Signature: parsed.Signature,
+			Synopsis:  parsed.Synopsis,
+			Doc:       parsed.Doc,
+			Examples:  toExamples(parsed.Examples),
+			Version:   res.Version.Value,
+			Goos:      res.Goos.Value,
+			Goarch:    res.Goarch.Value,
+		}, nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	parsed, ok := godoc.Parse(res.Docs.Value, symbol, p.examples)
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrSymbolNotFound, symbol)
-	}
-	return &Symbol{
-		Path:      path,
-		Name:      symbol,
-		Kind:      parsed.Kind,
-		Signature: parsed.Signature,
-		Synopsis:  parsed.Synopsis,
-		Doc:       parsed.Doc,
-		Examples:  toExamples(parsed.Examples),
-		Version:   res.Version.Value,
-		Goos:      res.Goos.Value,
-		Goarch:    res.Goarch.Value,
-	}, nil
+	return v, err
 }
 
 // toExamples maps internal godoc examples to the public Example type.
@@ -208,22 +240,26 @@ func toExamples(in []godoc.Example) []Example {
 // Vulns lists known vulnerabilities for the module or package at path.
 func (c *Client) Vulns(ctx context.Context, path string, opts ...Option) (*Page[Vulnerability], error) {
 	p := newParams(opts)
-	res, err := c.raw.GetVulns(ctx, api.GetVulnsParams{
+	params := api.GetVulnsParams{
 		Path:    path,
 		Module:  optStr(p.module),
 		Version: optStr(p.version),
 		Limit:   optInt(p.limit),
 		Token:   optStr(p.token),
 		Filter:  optStr(p.filter),
+	}
+	v, err, _ := c.sf.vulns.Do(sfKey("vulns", params), func() (*Page[Vulnerability], error) {
+		res, err := c.raw.GetVulns(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		page, err := decodePage[Vulnerability](*res)
+		if err != nil {
+			return nil, err
+		}
+		return &page, nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	page, err := decodePage[Vulnerability](*res)
-	if err != nil {
-		return nil, err
-	}
-	return &page, nil
+	return v, err
 }
 
 // MajorVersions discovers the major versions of the module at modulePath.
@@ -245,7 +281,9 @@ func (c *Client) MajorVersions(ctx context.Context, modulePath string, opts ...O
 		return nil, ErrProxyDisabled
 	}
 
-	found, err := majors.Discover(ctx, c.proxy, modulePath, p.excludePseudo)
+	found, err, _ := c.sf.majorVersions.Do(sfKey("majorVersions", modulePath, p.excludePseudo), func() ([]majors.Major, error) {
+		return majors.Discover(ctx, c.proxy, modulePath, p.excludePseudo)
+	})
 	if err != nil {
 		if errors.Is(err, majors.ErrInvalidModulePath) {
 			return nil, fmt.Errorf("%w: %q", ErrInvalidModulePath, modulePath)
