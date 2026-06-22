@@ -20,6 +20,12 @@ import (
 // DefaultBaseURL is the production pkg.go.dev API base URL.
 const DefaultBaseURL = api.DefaultBaseURL
 
+// DefaultMaxIdleConns is the number of idle keep-alive connections the default
+// HTTP client keeps open for reuse, shared across the API and proxy calls. The
+// standard http.DefaultTransport keeps only 2 idle connections per host, which
+// throttles the highly concurrent calls this client is built for.
+const DefaultMaxIdleConns = 1000
+
 // modulePath is this module's import path, used to look up its own version in
 // the build info embedded by the Go toolchain.
 const modulePath = "github.com/samber/go-pkggodev-client"
@@ -49,6 +55,17 @@ func moduleVersion() string {
 		}
 	}
 	return "unknown"
+}
+
+// newPooledHTTPClient returns an *http.Client backed by a clone of
+// http.DefaultTransport tuned to keep up to DefaultMaxIdleConns reusable
+// (keep-alive) connections. The global transport is cloned rather than mutated
+// so other users of http.DefaultTransport are unaffected.
+func newPooledHTTPClient() *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConns = DefaultMaxIdleConns
+	t.MaxIdleConnsPerHost = DefaultMaxIdleConns
+	return &http.Client{Transport: t}
 }
 
 // ErrSymbolNotFound is returned by Client.Symbol when the requested symbol is
@@ -130,19 +147,19 @@ func New(opts ...ClientOption) (*Client, error) {
 		o(&cfg)
 	}
 
-	raw := []api.Opt{
-		api.WithBaseURL(cfg.baseURL),
-		api.WithUserAgent(cfg.userAgent),
-	}
+	// When the caller does not supply a client, use one backed by a large pool
+	// of reusable connections. The same *http.Client — hence the same connection
+	// pool — is shared by the API and proxy calls.
 	httpClient := cfg.http
 	if httpClient == nil {
-		httpClient = http.DefaultClient
-	}
-	if cfg.http != nil {
-		raw = append(raw, api.WithHTTPClient(cfg.http))
+		httpClient = newPooledHTTPClient()
 	}
 
-	c, err := api.New(raw...)
+	c, err := api.New(
+		api.WithBaseURL(cfg.baseURL),
+		api.WithUserAgent(cfg.userAgent),
+		api.WithHTTPClient(httpClient),
+	)
 	if err != nil {
 		return nil, err
 	}
