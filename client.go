@@ -50,7 +50,7 @@ func moduleVersion() string {
 		return info.Main.Version
 	}
 	for _, dep := range info.Deps {
-		if dep.Path == modulePath && dep.Version != "" {
+		if dep != nil && dep.Path == modulePath && dep.Version != "" && dep.Version != "(devel)" {
 			return dep.Version
 		}
 	}
