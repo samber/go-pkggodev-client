@@ -61,9 +61,11 @@ func majorNum(v string) int {
 // dropped. The proxy is assumed to be enabled.
 func Discover(ctx context.Context, p *proxy.Client, modulePath string, excludePseudo bool) ([]Major, error) {
 	// Validate the caller-supplied path up front (it flows into proxy request
-	// URLs): EscapePath rejects schemes, "..", and other unclean paths. gopkg.in
-	// paths are only valid with their ".vN" suffix, so this validates the full
-	// input rather than the stripped base.
+	// URLs): EscapePath rejects schemes, "..", and other unclean paths. It does
+	// not enforce the gopkg.in ".vN" convention, so a bare "gopkg.in/yaml" is
+	// accepted and treated as a base to probe from .v1; an explicit ".vN" suffix
+	// is normalized to that base. The full input is validated rather than the
+	// stripped base.
 	clean := strings.TrimSuffix(strings.TrimSpace(modulePath), "/")
 	if _, err := module.EscapePath(clean); err != nil {
 		return nil, fmt.Errorf("%w: %q", ErrInvalidModulePath, modulePath)
