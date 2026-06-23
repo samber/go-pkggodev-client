@@ -23,10 +23,11 @@ func paginate[T any](fetch func(token string) (Page[T], error)) iter.Seq2[T, err
 					return
 				}
 			}
-			if page.NextToken == "" || len(page.Items) == 0 {
+			next := page.NextToken.OrEmpty()
+			if next == "" || len(page.Items) == 0 {
 				return
 			}
-			token = page.NextToken
+			token = next
 		}
 	}
 }

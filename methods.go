@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/samber/mo"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/samber/go-pkggodev-client/internal/api"
@@ -83,7 +84,7 @@ func (c *Client) ImportedBy(ctx context.Context, path string, opts ...Option) (*
 		if err != nil {
 			return nil, err
 		}
-		return &ImportedByResult{ModulePath: res.ModulePath.Value, Version: res.Version.Value, Packages: page}, nil
+		return &ImportedByResult{ModulePath: mo.TupleToOption(res.ModulePath.Get()), Version: mo.TupleToOption(res.Version.Get()), Packages: page}, nil
 	})
 	return v, err
 }
@@ -108,8 +109,8 @@ func (c *Client) Packages(ctx context.Context, path string, opts ...Option) (*Pa
 			return nil, err
 		}
 		return &PackagesResult{
-			ModulePath:        res.ModulePath.Value,
-			Version:           res.Version.Value,
+			ModulePath:        mo.TupleToOption(res.ModulePath.Get()),
+			Version:           mo.TupleToOption(res.Version.Get()),
 			IsStandardLibrary: res.IsStandardLibrary.Value,
 			Packages:          page,
 		}, nil
@@ -151,15 +152,16 @@ func (c *Client) applyModuleSize(ctx context.Context, m *Module, want bool) erro
 	if !c.proxy.Enabled() {
 		return ErrProxyDisabled
 	}
-	if m.Version == "" {
+	version, ok := m.Version.Get()
+	if !ok {
 		return nil
 	}
-	size, ok, err := c.proxy.ZipSize(ctx, m.Path, m.Version)
+	size, found, err := c.proxy.ZipSize(ctx, m.Path, version)
 	if err != nil {
 		return err
 	}
-	if ok {
-		m.Size = size
+	if found {
+		m.Size = mo.Some(size)
 	}
 	return nil
 }
@@ -218,7 +220,7 @@ func (c *Client) applyVersionSizes(ctx context.Context, items []ModuleVersion, w
 				return err
 			}
 			if ok {
-				items[i].Size = size
+				items[i].Size = mo.Some(size)
 			}
 			return nil
 		})
@@ -285,12 +287,12 @@ func (c *Client) Symbol(ctx context.Context, path, symbol string, opts ...Option
 			Name:      symbol,
 			Kind:      parsed.Kind,
 			Signature: parsed.Signature,
-			Synopsis:  parsed.Synopsis,
-			Doc:       parsed.Doc,
+			Synopsis:  mo.EmptyableToOption(parsed.Synopsis),
+			Doc:       mo.EmptyableToOption(parsed.Doc),
 			Examples:  toExamples(parsed.Examples),
-			Version:   res.Version.Value,
-			Goos:      res.Goos.Value,
-			Goarch:    res.Goarch.Value,
+			Version:   mo.TupleToOption(res.Version.Get()),
+			Goos:      mo.TupleToOption(res.Goos.Get()),
+			Goarch:    mo.TupleToOption(res.Goarch.Get()),
 		}, nil
 	})
 	return v, err
@@ -303,7 +305,7 @@ func toExamples(in []godoc.Example) []Example {
 	}
 	out := make([]Example, 0, len(in))
 	for _, e := range in {
-		out = append(out, Example{Name: e.Name, Code: e.Code, Output: e.Output})
+		out = append(out, Example{Name: mo.EmptyableToOption(e.Name), Code: e.Code, Output: mo.EmptyableToOption(e.Output)})
 	}
 	return out
 }

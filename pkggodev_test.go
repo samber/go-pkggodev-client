@@ -39,8 +39,8 @@ func TestPackage_CleanTypes(t *testing.T) {
 
 	pkg, err := c.Package(context.Background(), "github.com/samber/lo")
 	require.NoError(t, err)
-	assert.Equal(t, "github.com/samber/lo", pkg.Path) // plain string, no .Value
-	assert.Equal(t, "lo", pkg.Name)
+	assert.Equal(t, "github.com/samber/lo", pkg.Path) // required field, plain string
+	assert.Equal(t, "lo", pkg.Name.OrEmpty())         // optional field, mo.Option[string]
 	assert.True(t, pkg.IsLatest)
 }
 

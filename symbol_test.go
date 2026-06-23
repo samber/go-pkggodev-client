@@ -102,10 +102,10 @@ func TestSymbol_Function(t *testing.T) {
 	assert.Equal(t, "github.com/samber/lo", sd.Path)
 	assert.Equal(t, "Function", sd.Kind)
 	assert.Equal(t, "func Assign[K comparable, V any, Map ~map[K]V](maps ...Map) Map", sd.Signature)
-	assert.Equal(t, "Assign merges multiple maps from left to right.", sd.Synopsis)
-	assert.Contains(t, sd.Doc, "Play:")
-	assert.Equal(t, "v1.53.0", sd.Version)
-	assert.Equal(t, "all", sd.Goos)
+	assert.Equal(t, "Assign merges multiple maps from left to right.", sd.Synopsis.OrEmpty())
+	assert.Contains(t, sd.Doc.OrEmpty(), "Play:")
+	assert.Equal(t, "v1.53.0", sd.Version.OrEmpty())
+	assert.Equal(t, "all", sd.Goos.OrEmpty())
 	assert.Empty(t, sd.Examples)
 }
 
@@ -118,7 +118,7 @@ func TestSymbol_Type(t *testing.T) {
 	assert.Equal(t, "Type", sd.Kind)
 	assert.Contains(t, sd.Signature, "type Entry[K comparable, V any] struct {")
 	assert.Contains(t, sd.Signature, "Key") // full multi-line signature
-	assert.Equal(t, "Entry defines a key/value pairs.", sd.Synopsis)
+	assert.Equal(t, "Entry defines a key/value pairs.", sd.Synopsis.OrEmpty())
 }
 
 func TestSymbol_TypeMethod(t *testing.T) {
@@ -129,7 +129,7 @@ func TestSymbol_TypeMethod(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Method", sd.Kind)
 	assert.Equal(t, "func (e Either[L, R]) ForEach(leftCb func(L), rightCb func(R))", sd.Signature)
-	assert.Equal(t, "ForEach executes the given side-effecting function.", sd.Synopsis)
+	assert.Equal(t, "ForEach executes the given side-effecting function.", sd.Synopsis.OrEmpty())
 }
 
 func TestSymbol_GroupedVariable(t *testing.T) {
@@ -168,9 +168,9 @@ func TestSymbol_WithExamples(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "true", q["examples"])
 	require.Len(t, sd.Examples, 1)
-	assert.Empty(t, sd.Examples[0].Name)
+	assert.True(t, sd.Examples[0].Name.IsAbsent()) // bare "Example", no name suffix
 	assert.Contains(t, sd.Examples[0].Code, "Entries(kv)")
-	assert.Equal(t, "[{bar 2} {baz 3} {foo 1}]", sd.Examples[0].Output)
+	assert.Equal(t, "[{bar 2} {baz 3} {foo 1}]", sd.Examples[0].Output.OrEmpty())
 }
 
 func TestSymbol_WithoutExamples(t *testing.T) {
@@ -181,5 +181,5 @@ func TestSymbol_WithoutExamples(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, sd.Examples)
 	// Example code must not leak into the doc prose.
-	assert.NotContains(t, sd.Doc, "fmt.Printf")
+	assert.NotContains(t, sd.Doc.OrEmpty(), "fmt.Printf")
 }
