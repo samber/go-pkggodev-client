@@ -14,9 +14,15 @@ A typed Go client for the [pkg.go.dev](https://pkg.go.dev) API (the "Go Pkgsite 
 single symbol), list versions, importers, known vulnerabilities and a module's dependencies.
 
 The public API lives at the module root (`package pkggodev`): **context-first methods**,
-**functional options**, **clean typed results** (no codegen leakage) and **auto-paginating
+**functional options**, **clean typed results** (no ogen codegen leakage) and **auto-paginating
 iterators**. It wraps an [ogen](https://github.com/ogen-go/ogen)-generated client kept under
 [`internal/api`](internal/api).
+
+Optional response fields are typed as [`mo.Option[T]`](https://github.com/samber/mo) (e.g.
+`pkg.Synopsis` is `mo.Option[string]`, `module.Size` is `mo.Option[int64]`): the type tells absent
+apart from a zero value, with no leaked codegen wrappers. Read them with `.OrEmpty()`, `.Get()`,
+`.MustGet()` or `.IsAbsent()`. Required fields stay plain (`pkg.Path` is a `string`). When marshalled
+back to JSON, absent options are omitted (`omitzero`).
 
 > [!TIP]
 > Looking for a **CLI** or **MCP** instead of a Go library? Use [`samber/godig`](https://github.com/samber/godig) — the pkg.go.dev CLI powered by this client.
@@ -41,7 +47,7 @@ if err != nil {
 
 // Single object.
 pkg, _ := c.Package(ctx, "github.com/samber/lo")
-fmt.Println(pkg.Path, pkg.Synopsis) // clean strings, no Opt wrappers
+fmt.Println(pkg.Path, pkg.Synopsis.OrEmpty()) // required string + optional mo.Option[string]
 
 // A single symbol's documentation (token-efficient, no full package blob).
 sym, err := c.Symbol(ctx, "github.com/samber/lo", "Map", pkggodev.WithExamples())
@@ -49,11 +55,11 @@ if errors.Is(err, pkggodev.ErrSymbolNotFound) {
 	// symbol does not exist in the package
 }
 fmt.Println(sym.Kind, sym.Signature) // "Function", "func Map[...](...) ..."
-fmt.Println(sym.Synopsis)            // first sentence of the doc
+fmt.Println(sym.Synopsis.OrEmpty())  // first sentence of the doc
 
 // One page.
 page, _ := c.Versions(ctx, "github.com/samber/lo", pkggodev.WithLimit(10))
-fmt.Println(page.Total, page.NextToken)
+fmt.Println(page.Total, page.NextToken.OrEmpty())
 
 // All results, auto-paginated.
 for v, err := range c.AllVersions(ctx, "github.com/samber/lo") {
@@ -66,12 +72,12 @@ for v, err := range c.AllVersions(ctx, "github.com/samber/lo") {
 // A module's dependencies, parsed from the go.mod on the Go module proxy.
 deps, _ := c.Dependencies(ctx, "github.com/samber/do/v2")
 for _, d := range deps.Requires {
-	fmt.Println(d.Path, d.Version, d.Indirect) // github.com/samber/go-type-to-string v1.8.0 false
+	fmt.Println(d.Path, d.Version.OrEmpty(), d.Indirect) // github.com/samber/go-type-to-string v1.8.0 false
 }
 
 // Module download size (Content-Length of the proxy zip), opt-in via WithSize.
 m, _ := c.Module(ctx, "github.com/samber/do/v2", pkggodev.WithSize())
-fmt.Println(m.GoVersion, m.Size) // "1.18" 65031 (bytes)
+fmt.Println(m.GoVersion.OrEmpty(), m.Size.OrEmpty()) // "1.18" 65031 (bytes)
 ```
 
 ## 🧠 Spec
@@ -152,9 +158,9 @@ the number of returned majors (the proposal's `Max`); `WithFilter` matches each 
 
 ```go
 deps, _ := c.Dependencies(ctx, "github.com/samber/do/v2")
-fmt.Println(deps.Version, deps.GoVersion) // resolved version + go directive, e.g. "v2.0.0" "1.18"
+fmt.Println(deps.Version, deps.GoVersion.OrEmpty()) // resolved version + go directive, e.g. "v2.0.0" "1.18"
 for _, d := range deps.Requires {
-	fmt.Println(d.Path, d.Version, d.Indirect)
+	fmt.Println(d.Path, d.Version.OrEmpty(), d.Indirect)
 }
 ```
 
@@ -173,14 +179,14 @@ archive is never downloaded). It populates `Module.Size` (one extra request) and
 
 ```go
 m, _ := c.Module(ctx, "github.com/samber/do/v2", pkggodev.WithSize())
-fmt.Println(m.GoVersion, m.Size) // "1.18" 65031  (bytes)
+fmt.Println(m.GoVersion.OrEmpty(), m.Size.OrEmpty()) // "1.18" 65031  (bytes)
 
 // Size of every release, fetched concurrently.
 for v, err := range c.AllVersions(ctx, "github.com/samber/do/v2", pkggodev.WithSize()) {
 	if err != nil {
 		break
 	}
-	fmt.Println(v.Version, v.Size)
+	fmt.Println(v.Version, v.Size.OrEmpty())
 }
 ```
 

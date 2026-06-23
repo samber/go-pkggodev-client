@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	pkggodev "github.com/samber/go-pkggodev-client"
+	"github.com/samber/mo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -91,17 +92,17 @@ exclude github.com/bad/pkg v0.9.0
 
 	assert.Equal(t, "github.com/samber/example", res.ModulePath)
 	assert.Equal(t, "v1.4.0", res.Version) // resolved from @latest
-	assert.Equal(t, "1.25", res.GoVersion)
+	assert.Equal(t, "1.25", res.GoVersion.OrEmpty())
 	assert.Equal(t, []pkggodev.Dependency{
-		{Path: "github.com/samber/lo", Version: "v1.0.0"},
-		{Path: "github.com/stretchr/testify", Version: "v1.11.1"},
-		{Path: "github.com/davecgh/go-spew", Version: "v1.1.1", Indirect: true},
+		{Path: "github.com/samber/lo", Version: mo.Some("v1.0.0")},
+		{Path: "github.com/stretchr/testify", Version: mo.Some("v1.11.1")},
+		{Path: "github.com/davecgh/go-spew", Version: mo.Some("v1.1.1"), Indirect: true},
 	}, res.Requires)
 	assert.Equal(t, []pkggodev.Replacement{
-		{OldPath: "github.com/old/pkg", NewPath: "github.com/new/pkg", NewVersion: "v1.2.3"},
+		{OldPath: "github.com/old/pkg", NewPath: "github.com/new/pkg", NewVersion: mo.Some("v1.2.3")},
 	}, res.Replaces)
 	assert.Equal(t, []pkggodev.Dependency{
-		{Path: "github.com/bad/pkg", Version: "v0.9.0"},
+		{Path: "github.com/bad/pkg", Version: mo.Some("v0.9.0")},
 	}, res.Excludes)
 }
 
@@ -119,7 +120,7 @@ func TestDependencies_ExplicitVersion(t *testing.T) {
 	res, err := c.Dependencies(context.Background(), "github.com/samber/do/v2", pkggodev.WithVersion("v2.0.0"))
 	require.NoError(t, err)
 	assert.Equal(t, "v2.0.0", res.Version)
-	assert.Equal(t, "1.18", res.GoVersion)
+	assert.Equal(t, "1.18", res.GoVersion.OrEmpty())
 	require.Len(t, res.Requires, 1)
 	assert.Equal(t, "github.com/samber/go-type-to-string", res.Requires[0].Path)
 }
@@ -165,14 +166,14 @@ func TestModule_WithSize(t *testing.T) {
 	// Without WithSize: no proxy call, Size stays zero; GoVersion comes free from go.mod.
 	m, err := c.Module(context.Background(), "github.com/samber/lo")
 	require.NoError(t, err)
-	assert.Equal(t, int64(0), m.Size)
-	assert.Equal(t, "1.25", m.GoVersion)
+	assert.True(t, m.Size.IsAbsent()) // not fetched without WithSize
+	assert.Equal(t, "1.25", m.GoVersion.OrEmpty())
 
 	// With WithSize: Content-Length of the proxy zip.
 	m, err = c.Module(context.Background(), "github.com/samber/lo", pkggodev.WithSize())
 	require.NoError(t, err)
-	assert.Equal(t, int64(65031), m.Size)
-	assert.Equal(t, "1.25", m.GoVersion)
+	assert.Equal(t, int64(65031), m.Size.MustGet())
+	assert.Equal(t, "1.25", m.GoVersion.OrEmpty())
 }
 
 func TestVersions_WithSize(t *testing.T) {
@@ -202,14 +203,14 @@ func TestVersions_WithSize(t *testing.T) {
 	page, err := c.Versions(context.Background(), "github.com/samber/lo")
 	require.NoError(t, err)
 	require.Len(t, page.Items, 2)
-	assert.Equal(t, int64(0), page.Items[0].Size)
+	assert.True(t, page.Items[0].Size.IsAbsent()) // not fetched without WithSize
 
 	// With WithSize: each version carries its zip Content-Length.
 	page, err = c.Versions(context.Background(), "github.com/samber/lo", pkggodev.WithSize())
 	require.NoError(t, err)
 	require.Len(t, page.Items, 2)
-	assert.Equal(t, int64(200), page.Items[0].Size)
-	assert.Equal(t, int64(100), page.Items[1].Size)
+	assert.Equal(t, int64(200), page.Items[0].Size.MustGet())
+	assert.Equal(t, int64(100), page.Items[1].Size.MustGet())
 }
 
 func TestVersions_WithSize_ProxyDisabled(t *testing.T) {
