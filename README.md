@@ -88,7 +88,7 @@ func New(opts ...ClientOption) (*Client, error)
 - `WithHTTPClient(*http.Client)` — custom timeouts / transport.
 - `WithUserAgent(string)` — set the `User-Agent` header.
 - `WithGoproxy(string)` — override the module proxy list used by `MajorVersions`, `Dependencies` and
-  `Module` with `WithSize` (same syntax as the `GOPROXY` env var; honored by default, defaulting to
+  `Module`/`Versions` with `WithSize` (same syntax as the `GOPROXY` env var; honored by default, defaulting to
   `https://proxy.golang.org`).
 
 ### Methods
