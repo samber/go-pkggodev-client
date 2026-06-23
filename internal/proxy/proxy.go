@@ -117,6 +117,91 @@ func (c *Client) get(ctx context.Context, escapedPath, suffix string) (body []by
 	return nil, false, nil
 }
 
+// head issues a HEAD for escapedPath+suffix against each proxy in turn and
+// returns the Content-Length of the first OK response. It mirrors get's
+// fallback semantics: 404/410 means "try the next proxy"; if every proxy
+// reports not found, head returns ok=false with a nil error.
+func (c *Client) head(ctx context.Context, escapedPath, suffix string) (size int64, ok bool, err error) {
+	if len(c.bases) == 0 {
+		return 0, false, ErrDisabled
+	}
+	var lastErr error
+	for _, base := range c.bases {
+		url := base + "/" + escapedPath + suffix
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+		if reqErr != nil {
+			return 0, false, reqErr
+		}
+		if c.userAgent != "" {
+			req.Header.Set("User-Agent", c.userAgent)
+		}
+		resp, doErr := c.http.Do(req)
+		if doErr != nil {
+			lastErr = doErr
+			continue
+		}
+		_ = resp.Body.Close()
+		switch resp.StatusCode {
+		case http.StatusOK:
+			if resp.ContentLength < 0 {
+				lastErr = fmt.Errorf("module proxy %s: missing Content-Length", url)
+				continue
+			}
+			return resp.ContentLength, true, nil
+		case http.StatusNotFound, http.StatusGone:
+			continue // not found on this proxy; try the next one
+		case http.StatusTooManyRequests:
+			lastErr = fmt.Errorf("module proxy rate limited (429): %s", url)
+		default:
+			lastErr = fmt.Errorf("module proxy %s: unexpected status %d", url, resp.StatusCode)
+		}
+	}
+	if lastErr != nil {
+		return 0, false, lastErr
+	}
+	return 0, false, nil
+}
+
+// modEscape escapes modulePath and version for the proxy protocol and builds
+// the "/@v/<version><ext>" suffix. Both must be escaped: a single uppercase
+// letter is encoded as "!" + lowercase to keep proxy URLs case-insensitive.
+func modEscape(modulePath, version, ext string) (escapedPath, suffix string, err error) {
+	esc, err := module.EscapePath(modulePath)
+	if err != nil {
+		return "", "", fmt.Errorf("%w: %q", ErrInvalidModulePath, modulePath)
+	}
+	ev, err := module.EscapeVersion(version)
+	if err != nil {
+		return "", "", fmt.Errorf("%w: %q", ErrInvalidModulePath, modulePath+"@"+version)
+	}
+	return esc, "/@v/" + ev + ext, nil
+}
+
+// Mod returns the go.mod file of modulePath at version from the proxy
+// (<proxy>/<module>/@v/<version>.mod). version must be a concrete version (not
+// "latest"); resolve it with Latest first if needed. ok is false when the
+// module version is unknown to every proxy.
+func (c *Client) Mod(ctx context.Context, modulePath, version string) (gomod []byte, ok bool, err error) {
+	esc, suffix, err := modEscape(modulePath, version, ".mod")
+	if err != nil {
+		return nil, false, err
+	}
+	return c.get(ctx, esc, suffix)
+}
+
+// ZipSize returns the size in bytes of the module zip
+// (<proxy>/<module>/@v/<version>.zip) from its Content-Length, fetched with a
+// HEAD request so the archive itself is never downloaded. version must be a
+// concrete version. ok is false when the module version is unknown to every
+// proxy.
+func (c *Client) ZipSize(ctx context.Context, modulePath, version string) (size int64, ok bool, err error) {
+	esc, suffix, err := modEscape(modulePath, version, ".zip")
+	if err != nil {
+		return 0, false, err
+	}
+	return c.head(ctx, esc, suffix)
+}
+
 // versionInfo is the JSON payload of a proxy @latest / @v/<ver>.info response.
 type versionInfo struct {
 	Version string `json:"Version"`

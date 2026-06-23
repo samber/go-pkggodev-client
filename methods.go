@@ -6,9 +6,13 @@ import (
 	"fmt"
 	"regexp"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/samber/go-pkggodev-client/internal/api"
 	"github.com/samber/go-pkggodev-client/internal/godoc"
+	"github.com/samber/go-pkggodev-client/internal/gomod"
 	"github.com/samber/go-pkggodev-client/internal/majors"
+	"github.com/samber/go-pkggodev-client/internal/proxy"
 )
 
 // Search finds packages and symbols. Use WithQuery and/or WithSymbol.
@@ -122,14 +126,42 @@ func (c *Client) Module(ctx context.Context, path string, opts ...Option) (*Modu
 		Licenses: optBool(p.licenses),
 		Readme:   optBool(p.readme),
 	}
-	v, err, _ := c.sf.module.Do(sfKey("module", params), func() (*Module, error) {
+	v, err, _ := c.sf.module.Do(sfKey("module", params, p.size), func() (*Module, error) {
 		res, err := c.raw.GetModule(ctx, params)
 		if err != nil {
 			return nil, err
 		}
-		return toModule(res), nil
+		m := toModule(res)
+		if err := c.applyModuleSize(ctx, m, p.size); err != nil {
+			return nil, err
+		}
+		return m, nil
 	})
 	return v, err
+}
+
+// applyModuleSize fills m.Size from the module proxy zip's Content-Length when
+// want is set. It needs a usable proxy (returning ErrProxyDisabled otherwise)
+// and is a no-op when want is false or the API did not resolve a concrete
+// version (the zip endpoint requires one).
+func (c *Client) applyModuleSize(ctx context.Context, m *Module, want bool) error {
+	if !want {
+		return nil
+	}
+	if !c.proxy.Enabled() {
+		return ErrProxyDisabled
+	}
+	if m.Version == "" {
+		return nil
+	}
+	size, ok, err := c.proxy.ZipSize(ctx, m.Path, m.Version)
+	if err != nil {
+		return err
+	}
+	if ok {
+		m.Size = size
+	}
+	return nil
 }
 
 // Versions lists the versions of the module at path.
@@ -141,7 +173,7 @@ func (c *Client) Versions(ctx context.Context, path string, opts ...Option) (*Pa
 		Token:  optStr(p.token),
 		Filter: optStr(p.filter),
 	}
-	v, err, _ := c.sf.versions.Do(sfKey("versions", params), func() (*Page[ModuleVersion], error) {
+	v, err, _ := c.sf.versions.Do(sfKey("versions", params, p.size), func() (*Page[ModuleVersion], error) {
 		res, err := c.raw.GetVersions(ctx, params)
 		if err != nil {
 			return nil, err
@@ -150,9 +182,48 @@ func (c *Client) Versions(ctx context.Context, path string, opts ...Option) (*Pa
 		if err != nil {
 			return nil, err
 		}
+		if err := c.applyVersionSizes(ctx, page.Items, p.size); err != nil {
+			return nil, err
+		}
 		return &page, nil
 	})
 	return v, err
+}
+
+// sizeFetchConcurrency caps the number of concurrent proxy HEAD requests issued
+// when filling per-version sizes, so a large versions page does not open one
+// connection per version at once.
+const sizeFetchConcurrency = 16
+
+// applyVersionSizes fills each item's Size from its module-proxy zip
+// Content-Length when want is set, fetching them concurrently. It requires a
+// usable proxy (ErrProxyDisabled otherwise). Versions unknown to the proxy keep
+// Size zero; any other proxy error fails the call.
+func (c *Client) applyVersionSizes(ctx context.Context, items []ModuleVersion, want bool) error {
+	if !want {
+		return nil
+	}
+	if !c.proxy.Enabled() {
+		return ErrProxyDisabled
+	}
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(sizeFetchConcurrency)
+	for i := range items {
+		if items[i].ModulePath == "" || items[i].Version == "" {
+			continue
+		}
+		g.Go(func() error {
+			size, ok, err := c.proxy.ZipSize(ctx, items[i].ModulePath, items[i].Version)
+			if err != nil {
+				return err
+			}
+			if ok {
+				items[i].Size = size
+			}
+			return nil
+		})
+	}
+	return g.Wait()
 }
 
 // Symbols lists the exported symbols of the package at path.
@@ -315,4 +386,60 @@ func (c *Client) MajorVersions(ctx context.Context, modulePath string, opts ...O
 		items = items[:p.limit]
 	}
 	return &Page[MajorVersion]{Items: items, Total: total}, nil
+}
+
+// Dependencies returns the dependencies declared in the go.mod of the module at
+// modulePath, parsed from the Go module proxy (honoring GOPROXY, see
+// WithGoproxy). It reports the require directives — each with its version and
+// whether it is "// indirect" — plus any replace and exclude directives and the
+// module's go directive.
+//
+// WithVersion selects the version; when unset (or "latest") the proxy's latest
+// version is used, and the result's Version is the concrete version the go.mod
+// was read at. Dependencies returns ErrProxyDisabled when GOPROXY is
+// "off"/"direct"-only, ErrInvalidModulePath for an unparsable path, and
+// ErrModuleNotFound when the module version is unknown to every proxy.
+func (c *Client) Dependencies(ctx context.Context, modulePath string, opts ...Option) (*DependenciesResult, error) {
+	p := newParams(opts)
+	if !c.proxy.Enabled() {
+		return nil, ErrProxyDisabled
+	}
+
+	v, err, _ := c.sf.dependencies.Do(sfKey("dependencies", modulePath, p.version), func() (*DependenciesResult, error) {
+		version := p.version
+		if version == "" || version == "latest" {
+			latest, ok, err := c.proxy.Latest(ctx, modulePath)
+			if err != nil {
+				return nil, mapProxyErr(err, modulePath)
+			}
+			if !ok {
+				return nil, fmt.Errorf("%w: %q", ErrModuleNotFound, modulePath)
+			}
+			version = latest
+		}
+
+		data, ok, err := c.proxy.Mod(ctx, modulePath, version)
+		if err != nil {
+			return nil, mapProxyErr(err, modulePath)
+		}
+		if !ok {
+			return nil, fmt.Errorf("%w: %q@%s", ErrModuleNotFound, modulePath, version)
+		}
+
+		mod, err := gomod.Parse(modulePath, data)
+		if err != nil {
+			return nil, fmt.Errorf("parse go.mod for %s@%s: %w", modulePath, version, err)
+		}
+		return toDependenciesResult(modulePath, version, mod), nil
+	})
+	return v, err
+}
+
+// mapProxyErr translates an internal proxy invalid-path error into the public
+// ErrInvalidModulePath, leaving other errors untouched.
+func mapProxyErr(err error, modulePath string) error {
+	if errors.Is(err, proxy.ErrInvalidModulePath) {
+		return fmt.Errorf("%w: %q", ErrInvalidModulePath, modulePath)
+	}
+	return err
 }
