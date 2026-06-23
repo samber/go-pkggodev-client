@@ -82,9 +82,14 @@ var ErrSymbolNotFound = errors.New("pkggodev: symbol not found")
 // MajorVersions.
 var ErrInvalidModulePath = errors.New("pkggodev: invalid module path")
 
-// ErrProxyDisabled is returned by MajorVersions when no usable module proxy is
-// configured (GOPROXY is "off" or resolves to "direct" only).
+// ErrProxyDisabled is returned by MajorVersions and Dependencies (and by Module
+// with WithSize) when no usable module proxy is configured (GOPROXY is "off" or
+// resolves to "direct" only).
 var ErrProxyDisabled = errors.New("pkggodev: no usable module proxy (GOPROXY)")
+
+// ErrModuleNotFound is returned by Dependencies when the module (at the
+// requested version) is unknown to every configured proxy.
+var ErrModuleNotFound = errors.New("pkggodev: module not found")
 
 // Client is the pkg.go.dev API api.
 type Client struct {
@@ -111,6 +116,7 @@ type singleflightGroups struct {
 	symbol        singleflightx.Group[string, *Symbol]
 	vulns         singleflightx.Group[string, *Page[Vulnerability]]
 	majorVersions singleflightx.Group[string, []majors.Major]
+	dependencies  singleflightx.Group[string, *DependenciesResult]
 }
 
 // sfKey builds a singleflight deduplication key from an endpoint name and its

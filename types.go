@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/samber/go-pkggodev-client/internal/api"
+	"github.com/samber/go-pkggodev-client/internal/gomod"
 )
 
 // Page is a paginated slice of T returned by listing endpoints.
@@ -48,9 +49,11 @@ type Package struct {
 type Module struct {
 	Path              string    `json:"path"`
 	Version           string    `json:"version,omitempty"`
+	GoVersion         string    `json:"goVersion,omitempty"` // the "go" directive of go.mod, e.g. "1.25".
 	RepoURL           string    `json:"repoUrl,omitempty"`
 	GoModContents     string    `json:"goModContents,omitempty"`
 	CommitTime        time.Time `json:"commitTime,omitzero"`
+	Size              int64     `json:"size,omitempty"` // module zip size in bytes; set only with WithSize.
 	HasGoMod          bool      `json:"hasGoMod"`
 	IsLatest          bool      `json:"isLatest"`
 	IsRedistributable bool      `json:"isRedistributable"`
@@ -73,6 +76,7 @@ type ModuleVersion struct {
 	Version           string    `json:"version"`
 	LatestVersion     string    `json:"latestVersion"`
 	CommitTime        time.Time `json:"commitTime"`
+	Size              int64     `json:"size,omitempty"` // version zip size in bytes; set only with WithSize.
 	HasGoMod          bool      `json:"hasGoMod"`
 	IsRedistributable bool      `json:"isRedistributable"`
 	Deprecated        bool      `json:"deprecated"`
@@ -153,6 +157,36 @@ type PackagesResult struct {
 	Packages          Page[PackageInfo] `json:"packages"`
 }
 
+// Dependency is one module a target module depends on, parsed from a go.mod
+// require (or exclude) directive.
+type Dependency struct {
+	Path     string `json:"path"`
+	Version  string `json:"version,omitempty"`
+	Indirect bool   `json:"indirect,omitempty"` // true for a "// indirect" require (transitive, not imported directly).
+}
+
+// Replacement is one go.mod replace directive, redirecting a module (optionally
+// pinned to OldVersion) to NewPath. A NewPath that is a filesystem path with no
+// NewVersion is a local replacement.
+type Replacement struct {
+	OldPath    string `json:"oldPath"`
+	OldVersion string `json:"oldVersion,omitempty"`
+	NewPath    string `json:"newPath"`
+	NewVersion string `json:"newVersion,omitempty"`
+}
+
+// DependenciesResult is the parsed go.mod of a module: the dependencies it
+// declares (requires), plus any replace/exclude directives, fetched from the Go
+// module proxy. See Client.Dependencies.
+type DependenciesResult struct {
+	ModulePath string        `json:"modulePath"`
+	Version    string        `json:"version"`             // the concrete version the go.mod was read at.
+	GoVersion  string        `json:"goVersion,omitempty"` // the "go" directive, e.g. "1.25".
+	Requires   []Dependency  `json:"requires,omitempty"`
+	Replaces   []Replacement `json:"replaces,omitempty"`
+	Excludes   []Dependency  `json:"excludes,omitempty"`
+}
+
 // --- public -> ogen optional params ---
 
 func optStr(s string) api.OptString {
@@ -211,6 +245,7 @@ func toModule(m *api.Module) *Module {
 	return &Module{
 		Path:              m.Path.Value,
 		Version:           m.Version.Value,
+		GoVersion:         goVersionOf(m.Path.Value, m.GoModContents.Value),
 		RepoURL:           m.RepoUrl.Value,
 		GoModContents:     m.GoModContents.Value,
 		CommitTime:        m.CommitTime.Value,
@@ -221,6 +256,43 @@ func toModule(m *api.Module) *Module {
 		Licenses:          toLicenses(m.Licenses),
 		Readme:            Readme{Contents: m.Readme.Value.Contents.Value, Filepath: m.Readme.Value.Filepath.Value},
 	}
+}
+
+// goVersionOf extracts the "go" directive from go.mod contents, best-effort: an
+// empty or unparsable go.mod yields "".
+func goVersionOf(modulePath, contents string) string {
+	if contents == "" {
+		return ""
+	}
+	m, err := gomod.Parse(modulePath, []byte(contents))
+	if err != nil {
+		return ""
+	}
+	return m.GoVersion
+}
+
+// toDependenciesResult maps a parsed go.mod into the public DependenciesResult.
+func toDependenciesResult(modulePath, version string, m *gomod.Mod) *DependenciesResult {
+	res := &DependenciesResult{
+		ModulePath: modulePath,
+		Version:    version,
+		GoVersion:  m.GoVersion,
+	}
+	for _, r := range m.Requires {
+		res.Requires = append(res.Requires, Dependency{Path: r.Path, Version: r.Version, Indirect: r.Indirect})
+	}
+	for _, r := range m.Replaces {
+		res.Replaces = append(res.Replaces, Replacement{
+			OldPath:    r.OldPath,
+			OldVersion: r.OldVersion,
+			NewPath:    r.NewPath,
+			NewVersion: r.NewVersion,
+		})
+	}
+	for _, e := range m.Excludes {
+		res.Excludes = append(res.Excludes, Dependency{Path: e.Path, Version: e.Version})
+	}
+	return res
 }
 
 // decodePage turns an ogen PaginatedResponse (whose items are raw JSON) into a

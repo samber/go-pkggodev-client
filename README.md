@@ -11,7 +11,7 @@
 
 A typed Go client for the [pkg.go.dev](https://pkg.go.dev) API (the "Go Pkgsite API",
 `https://pkg.go.dev/v1beta`): search packages and symbols, read documentation (whole package or a
-single symbol), list versions, importers and known vulnerabilities.
+single symbol), list versions, importers, known vulnerabilities and a module's dependencies.
 
 The public API lives at the module root (`package pkggodev`): **context-first methods**,
 **functional options**, **clean typed results** (no codegen leakage) and **auto-paginating
@@ -62,6 +62,16 @@ for v, err := range c.AllVersions(ctx, "github.com/samber/lo") {
 	}
 	fmt.Println(v.Version, v.CommitTime)
 }
+
+// A module's dependencies, parsed from the go.mod on the Go module proxy.
+deps, _ := c.Dependencies(ctx, "github.com/samber/do/v2")
+for _, d := range deps.Requires {
+	fmt.Println(d.Path, d.Version, d.Indirect) // github.com/samber/go-type-to-string v1.8.0 false
+}
+
+// Module download size (Content-Length of the proxy zip), opt-in via WithSize.
+m, _ := c.Module(ctx, "github.com/samber/do/v2", pkggodev.WithSize())
+fmt.Println(m.GoVersion, m.Size) // "1.18" 65031 (bytes)
 ```
 
 ## 🧠 Spec
@@ -77,8 +87,9 @@ func New(opts ...ClientOption) (*Client, error)
 - `WithBaseURL(url)` — override the API base URL.
 - `WithHTTPClient(*http.Client)` — custom timeouts / transport.
 - `WithUserAgent(string)` — set the `User-Agent` header.
-- `WithGoproxy(string)` — override the module proxy list used by `MajorVersions` (same syntax as the
-  `GOPROXY` env var; honored by default, defaulting to `https://proxy.golang.org`).
+- `WithGoproxy(string)` — override the module proxy list used by `MajorVersions`, `Dependencies` and
+  `Module` with `WithSize` (same syntax as the `GOPROXY` env var; honored by default, defaulting to
+  `https://proxy.golang.org`).
 
 ### Methods
 
@@ -96,6 +107,7 @@ All take `context.Context` first and return clean, typed values:
 | `Symbol(ctx, path, symbol, opts...)` | `*Symbol`          |
 | `Vulns(ctx, path, opts...)`      | `*Page[Vulnerability]` |
 | `MajorVersions(ctx, modulePath, opts...)` | `*Page[MajorVersion]` |
+| `Dependencies(ctx, modulePath, opts...)`  | `*DependenciesResult`  |
 
 `Symbols` lists the package symbols as lightweight `SymbolInfo` values (name, kind, synopsis,
 parent). `Symbol` returns the full documentation of a single symbol (`func`, `type`, `method`,
@@ -131,11 +143,55 @@ the number of returned majors (the proposal's `Max`); `WithFilter` matches each 
 `MajorVersions` returns `ErrProxyDisabled` when `GOPROXY` is `off`/`direct`-only and
 `ErrInvalidModulePath` for an unparsable path.
 
+### Dependencies
+
+`pkg.go.dev` does not expose a dependencies endpoint, so `Dependencies` reads and parses the module's
+`go.mod` straight from the **Go module proxy** (honoring `GOPROXY`, see `WithGoproxy`). It returns the
+`require` directives (each with its version and whether it is `// indirect`), plus any `replace` and
+`exclude` directives and the module's `go` directive.
+
+```go
+deps, _ := c.Dependencies(ctx, "github.com/samber/do/v2")
+fmt.Println(deps.Version, deps.GoVersion) // resolved version + go directive, e.g. "v2.0.0" "1.18"
+for _, d := range deps.Requires {
+	fmt.Println(d.Path, d.Version, d.Indirect)
+}
+```
+
+`WithVersion` selects the version; when unset (or `"latest"`) the proxy's latest version is used and
+`Version` reports the concrete version the `go.mod` was read at. `Dependencies` returns
+`ErrProxyDisabled` when `GOPROXY` is `off`/`direct`-only, `ErrInvalidModulePath` for an unparsable
+path, and `ErrModuleNotFound` when the module version is unknown to every proxy.
+
+### Module download size
+
+`Module` always reports the `go` directive of the module's `go.mod` in `Module.GoVersion` (read from the
+already-returned `go.mod` contents, no extra request). Download sizes are opt-in via `WithSize`: a size
+is the `Content-Length` of the module zip on the **Go module proxy**, fetched with a `HEAD` request (the
+archive is never downloaded). It populates `Module.Size` (one extra request) and, on `Versions` /
+`AllVersions`, `ModuleVersion.Size` for each listed version (one concurrent request per version).
+
+```go
+m, _ := c.Module(ctx, "github.com/samber/do/v2", pkggodev.WithSize())
+fmt.Println(m.GoVersion, m.Size) // "1.18" 65031  (bytes)
+
+// Size of every release, fetched concurrently.
+for v, err := range c.AllVersions(ctx, "github.com/samber/do/v2", pkggodev.WithSize()) {
+	if err != nil {
+		break
+	}
+	fmt.Println(v.Version, v.Size)
+}
+```
+
+`Module` and `Versions` return `ErrProxyDisabled` when `WithSize` is set but `GOPROXY` is
+`off`/`direct`-only.
+
 ### Call options
 
 `WithVersion`, `WithModule`, `WithLimit`, `WithToken`, `WithFilter`, `WithGOOS`, `WithGOARCH`,
 `WithDoc`, `WithQuery`, `WithSymbol`, `WithExamples`, `WithImports`, `WithLicenses`, `WithReadme`,
-`WithExcludePseudo`. Each method ignores options that do not apply to it.
+`WithSize`, `WithExcludePseudo`. Each method ignores options that do not apply to it.
 
 ### Iterators (auto-pagination)
 

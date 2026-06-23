@@ -7,7 +7,7 @@ type Option func(*params)
 type params struct {
 	version, module, filter, token, goos, goarch, doc, query, symbol string
 	limit                                                            int
-	examples, imports, licenses, readme, excludePseudo               bool
+	examples, imports, licenses, readme, excludePseudo, size         bool
 }
 
 // WithVersion selects a module version (semver, "latest", "master" or "main").
@@ -51,6 +51,14 @@ func WithLicenses() Option { return func(p *params) { p.licenses = true } }
 
 // WithReadme includes the README in the result (Module only).
 func WithReadme() Option { return func(p *params) { p.readme = true } }
+
+// WithSize includes module download sizes in the result. A size is the
+// Content-Length of the module zip on the Go module proxy (see WithGoproxy),
+// fetched with a HEAD request. It applies to Module (Module.Size, one extra
+// request) and Versions (ModuleVersion.Size, one concurrent request per listed
+// version). Both return ErrProxyDisabled when WithSize is set but GOPROXY is
+// "off"/"direct"-only.
+func WithSize() Option { return func(p *params) { p.size = true } }
 
 // WithExcludePseudo drops majors whose latest version is a pseudo-version
 // (untagged commits). It reflects the ExcludePseudo flag of the proposed
