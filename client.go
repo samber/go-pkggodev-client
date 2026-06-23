@@ -82,9 +82,9 @@ var ErrSymbolNotFound = errors.New("pkggodev: symbol not found")
 // MajorVersions.
 var ErrInvalidModulePath = errors.New("pkggodev: invalid module path")
 
-// ErrProxyDisabled is returned by MajorVersions and Dependencies (and by Module
-// with WithSize) when no usable module proxy is configured (GOPROXY is "off" or
-// resolves to "direct" only).
+// ErrProxyDisabled is returned by MajorVersions and Dependencies (and by Module/
+// Versions when WithSize is set) when no usable module proxy is configured
+// (GOPROXY is "off" or resolves to "direct" only).
 var ErrProxyDisabled = errors.New("pkggodev: no usable module proxy (GOPROXY)")
 
 // ErrModuleNotFound is returned by Dependencies when the module (at the
