@@ -46,6 +46,17 @@ func TestPackage_CleanTypes(t *testing.T) {
 	assert.True(t, pkg.IsLatest)
 }
 
+func TestPackage_EmptyOptionalIsNone(t *testing.T) {
+	t.Parallel()
+	c := newClient(t, jsonHandler(t, "/v1beta/package/github.com/samber/lo",
+		`{"path":"github.com/samber/lo","name":"","synopsis":"pkg","isLatest":true}`))
+
+	pkg, err := c.Package(context.Background(), "github.com/samber/lo")
+	require.NoError(t, err)
+	assert.False(t, pkg.Name.IsPresent())          // empty string -> None
+	assert.Equal(t, "pkg", pkg.Synopsis.OrEmpty()) // non-empty -> Some
+}
+
 func TestVersions_DecodeItems(t *testing.T) {
 	t.Parallel()
 	c := newClient(t, jsonHandler(t, "/v1beta/versions/github.com/samber/lo",
