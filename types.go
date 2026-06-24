@@ -99,10 +99,10 @@ type MajorVersion struct {
 
 // Vulnerability is one entry from a /vulns response.
 type Vulnerability struct {
-	ID           string `json:"id"`
-	Summary      string `json:"summary"`
-	Details      string `json:"details"`
-	FixedVersion string `json:"fixedVersion"`
+	ID           string            `json:"id"`
+	Summary      string            `json:"summary"`
+	Details      string            `json:"details"`
+	FixedVersion mo.Option[string] `json:"fixedVersion,omitzero"`
 }
 
 // SymbolInfo is one entry from a /symbols response: lightweight metadata about a
