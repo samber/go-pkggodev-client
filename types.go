@@ -105,6 +105,26 @@ type Vulnerability struct {
 	FixedVersion mo.Option[string] `json:"fixedVersion,omitzero"`
 }
 
+// UnmarshalJSON decodes a Vulnerability, treating an absent, null or empty
+// fixedVersion as None: a vulnerability with no published fix yet.
+func (v *Vulnerability) UnmarshalJSON(data []byte) error {
+	type alias struct {
+		ID           string `json:"id"`
+		Summary      string `json:"summary"`
+		Details      string `json:"details"`
+		FixedVersion string `json:"fixedVersion"`
+	}
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	v.ID = a.ID
+	v.Summary = a.Summary
+	v.Details = a.Details
+	v.FixedVersion = mo.EmptyableToOption(a.FixedVersion)
+	return nil
+}
+
 // SymbolInfo is one entry from a /symbols response: lightweight metadata about a
 // package symbol. Use Client.Symbol to fetch the full documentation of one symbol.
 type SymbolInfo struct {
