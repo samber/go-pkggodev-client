@@ -2,12 +2,14 @@ package pkggodev_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	pkggodev "github.com/samber/go-pkggodev-client"
+	"github.com/samber/mo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,6 +46,17 @@ func TestPackage_CleanTypes(t *testing.T) {
 	assert.True(t, pkg.IsLatest)
 }
 
+func TestPackage_EmptyOptionalIsNone(t *testing.T) {
+	t.Parallel()
+	c := newClient(t, jsonHandler(t, "/v1beta/package/github.com/samber/lo",
+		`{"path":"github.com/samber/lo","name":"","synopsis":"pkg","isLatest":true}`))
+
+	pkg, err := c.Package(context.Background(), "github.com/samber/lo")
+	require.NoError(t, err)
+	assert.False(t, pkg.Name.IsPresent())          // empty string -> None
+	assert.Equal(t, "pkg", pkg.Synopsis.OrEmpty()) // non-empty -> Some
+}
+
 func TestVersions_DecodeItems(t *testing.T) {
 	t.Parallel()
 	c := newClient(t, jsonHandler(t, "/v1beta/versions/github.com/samber/lo",
@@ -67,6 +80,68 @@ func TestVulns_NullItems(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, page.Items)
 	assert.Equal(t, 0, page.Total)
+}
+
+func TestVulns_FixedVersionOptional(t *testing.T) {
+	t.Parallel()
+	c := newClient(t, jsonHandler(t, "/v1beta/vulns/golang.org/x/text",
+		`{"items":[`+
+			`{"id":"GO-2021-0113","summary":"fixed","details":"d","fixedVersion":"v0.3.7"},`+
+			`{"id":"GO-2099-9998","summary":"empty","details":"d","fixedVersion":""},`+
+			`{"id":"GO-2099-9999","summary":"unpatched","details":"d"}`+
+			`],"total":3}`))
+
+	page, err := c.Vulns(context.Background(), "golang.org/x/text")
+	require.NoError(t, err)
+	require.Len(t, page.Items, 3)
+
+	fixed := page.Items[0]
+	assert.Equal(t, "GO-2021-0113", fixed.ID)
+	v, ok := fixed.FixedVersion.Get()
+	assert.True(t, ok) // present fixedVersion -> Some
+	assert.Equal(t, "v0.3.7", v)
+
+	assert.False(t, page.Items[1].FixedVersion.IsPresent()) // empty fixedVersion -> None
+	assert.False(t, page.Items[2].FixedVersion.IsPresent()) // absent fixedVersion -> None
+}
+
+func TestVulnerability_Unmarshal(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name      string
+		json      string
+		wantValue string
+		wantSome  bool
+	}{
+		{"present", `{"id":"A","fixedVersion":"v0.3.7"}`, "v0.3.7", true},
+		{"empty", `{"id":"A","fixedVersion":""}`, "", false},
+		{"null", `{"id":"A","fixedVersion":null}`, "", false},
+		{"absent", `{"id":"A"}`, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var v pkggodev.Vulnerability
+			require.NoError(t, json.Unmarshal([]byte(tc.json), &v))
+			assert.Equal(t, "A", v.ID)
+			got, ok := v.FixedVersion.Get()
+			assert.Equal(t, tc.wantSome, ok)
+			assert.Equal(t, tc.wantValue, got)
+		})
+	}
+}
+
+func TestVulnerability_Marshal(t *testing.T) {
+	t.Parallel()
+
+	some, err := json.Marshal(pkggodev.Vulnerability{ID: "A", FixedVersion: mo.Some("v0.3.7")})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"id":"A","summary":"","details":"","fixedVersion":"v0.3.7"}`, string(some))
+
+	// None is omitted thanks to the ,omitzero tag.
+	none, err := json.Marshal(pkggodev.Vulnerability{ID: "A", FixedVersion: mo.None[string]()})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"id":"A","summary":"","details":""}`, string(none))
 }
 
 func TestImportedBy_StringItems(t *testing.T) {

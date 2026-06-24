@@ -99,10 +99,30 @@ type MajorVersion struct {
 
 // Vulnerability is one entry from a /vulns response.
 type Vulnerability struct {
-	ID           string `json:"id"`
-	Summary      string `json:"summary"`
-	Details      string `json:"details"`
-	FixedVersion string `json:"fixedVersion"`
+	ID           string            `json:"id"`
+	Summary      string            `json:"summary"`
+	Details      string            `json:"details"`
+	FixedVersion mo.Option[string] `json:"fixedVersion,omitzero"`
+}
+
+// UnmarshalJSON decodes a Vulnerability, treating an absent, null or empty
+// fixedVersion as None: a vulnerability with no published fix yet.
+func (v *Vulnerability) UnmarshalJSON(data []byte) error {
+	type alias struct {
+		ID           string `json:"id"`
+		Summary      string `json:"summary"`
+		Details      string `json:"details"`
+		FixedVersion string `json:"fixedVersion"`
+	}
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	v.ID = a.ID
+	v.Summary = a.Summary
+	v.Details = a.Details
+	v.FixedVersion = mo.EmptyableToOption(a.FixedVersion)
+	return nil
 }
 
 // SymbolInfo is one entry from a /symbols response: lightweight metadata about a
@@ -224,8 +244,8 @@ func toLicenses(in []api.License) []License {
 	out := make([]License, 0, len(in))
 	for _, l := range in {
 		out = append(out, License{
-			Contents: mo.TupleToOption(l.Contents.Get()),
-			FilePath: mo.TupleToOption(l.FilePath.Get()),
+			Contents: mo.EmptyableToOption(l.Contents.Value),
+			FilePath: mo.EmptyableToOption(l.FilePath.Value),
 			Types:    l.Types,
 		})
 	}
@@ -235,13 +255,13 @@ func toLicenses(in []api.License) []License {
 func toPackage(p *api.Package) *Package {
 	return &Package{
 		Path:              p.Path.Value,
-		ModulePath:        mo.TupleToOption(p.ModulePath.Get()),
-		Name:              mo.TupleToOption(p.Name.Get()),
-		Synopsis:          mo.TupleToOption(p.Synopsis.Get()),
-		Version:           mo.TupleToOption(p.Version.Get()),
-		Goos:              mo.TupleToOption(p.Goos.Get()),
-		Goarch:            mo.TupleToOption(p.Goarch.Get()),
-		Docs:              mo.TupleToOption(p.Docs.Get()),
+		ModulePath:        mo.EmptyableToOption(p.ModulePath.Value),
+		Name:              mo.EmptyableToOption(p.Name.Value),
+		Synopsis:          mo.EmptyableToOption(p.Synopsis.Value),
+		Version:           mo.EmptyableToOption(p.Version.Value),
+		Goos:              mo.EmptyableToOption(p.Goos.Value),
+		Goarch:            mo.EmptyableToOption(p.Goarch.Value),
+		Docs:              mo.EmptyableToOption(p.Docs.Value),
 		Imports:           p.Imports,
 		IsLatest:          p.IsLatest.Value,
 		IsRedistributable: p.IsRedistributable.Value,
@@ -254,17 +274,17 @@ func toModule(m *api.Module) *Module {
 	readme := mo.None[Readme]()
 	if r, ok := m.Readme.Get(); ok {
 		readme = mo.Some(Readme{
-			Contents: mo.TupleToOption(r.Contents.Get()),
-			Filepath: mo.TupleToOption(r.Filepath.Get()),
+			Contents: mo.EmptyableToOption(r.Contents.Value),
+			Filepath: mo.EmptyableToOption(r.Filepath.Value),
 		})
 	}
 	return &Module{
 		Path:              m.Path.Value,
-		Version:           mo.TupleToOption(m.Version.Get()),
+		Version:           mo.EmptyableToOption(m.Version.Value),
 		GoVersion:         mo.EmptyableToOption(goVersionOf(m.Path.Value, m.GoModContents.Value)),
-		RepoURL:           mo.TupleToOption(m.RepoUrl.Get()),
-		GoModContents:     mo.TupleToOption(m.GoModContents.Get()),
-		CommitTime:        mo.TupleToOption(m.CommitTime.Get()),
+		RepoURL:           mo.EmptyableToOption(m.RepoUrl.Value),
+		GoModContents:     mo.EmptyableToOption(m.GoModContents.Value),
+		CommitTime:        mo.EmptyableToOption(m.CommitTime.Value),
 		Size:              mo.None[int64](), // filled by applyModuleSize when WithSize is set.
 		HasGoMod:          m.HasGoMod.Value,
 		IsLatest:          m.IsLatest.Value,
@@ -315,7 +335,7 @@ func toDependenciesResult(modulePath, version string, m *gomod.Mod) *Dependencie
 // decodePage turns an ogen PaginatedResponse (whose items are raw JSON) into a
 // typed Page[T] by unmarshalling each item into T.
 func decodePage[T any](pr api.PaginatedResponse) (Page[T], error) {
-	page := Page[T]{NextToken: mo.TupleToOption(pr.NextPageToken.Get()), Total: pr.Total.Value}
+	page := Page[T]{NextToken: mo.EmptyableToOption(pr.NextPageToken.Value), Total: pr.Total.Value}
 	raws, ok := pr.Items.Get()
 	if !ok {
 		return page, nil

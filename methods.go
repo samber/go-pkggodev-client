@@ -84,7 +84,7 @@ func (c *Client) ImportedBy(ctx context.Context, path string, opts ...Option) (*
 		if err != nil {
 			return nil, err
 		}
-		return &ImportedByResult{ModulePath: mo.TupleToOption(res.ModulePath.Get()), Version: mo.TupleToOption(res.Version.Get()), Packages: page}, nil
+		return &ImportedByResult{ModulePath: mo.EmptyableToOption(res.ModulePath.Value), Version: mo.EmptyableToOption(res.Version.Value), Packages: page}, nil
 	})
 	return v, err
 }
@@ -109,8 +109,8 @@ func (c *Client) Packages(ctx context.Context, path string, opts ...Option) (*Pa
 			return nil, err
 		}
 		return &PackagesResult{
-			ModulePath:        mo.TupleToOption(res.ModulePath.Get()),
-			Version:           mo.TupleToOption(res.Version.Get()),
+			ModulePath:        mo.EmptyableToOption(res.ModulePath.Value),
+			Version:           mo.EmptyableToOption(res.Version.Value),
 			IsStandardLibrary: res.IsStandardLibrary.Value,
 			Packages:          page,
 		}, nil
@@ -290,9 +290,9 @@ func (c *Client) Symbol(ctx context.Context, path, symbol string, opts ...Option
 			Synopsis:  mo.EmptyableToOption(parsed.Synopsis),
 			Doc:       mo.EmptyableToOption(parsed.Doc),
 			Examples:  toExamples(parsed.Examples),
-			Version:   mo.TupleToOption(res.Version.Get()),
-			Goos:      mo.TupleToOption(res.Goos.Get()),
-			Goarch:    mo.TupleToOption(res.Goarch.Get()),
+			Version:   mo.EmptyableToOption(res.Version.Value),
+			Goos:      mo.EmptyableToOption(res.Goos.Value),
+			Goarch:    mo.EmptyableToOption(res.Goarch.Value),
 		}, nil
 	})
 	return v, err
