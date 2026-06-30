@@ -175,6 +175,56 @@ func TestVulns_PackageScoped(t *testing.T) {
 	assert.Empty(t, miss)
 }
 
+// TestVulns_MultipleRanges guards that two distinct OSV range entries stay
+// independent: a "fixed" in the second range must not close an "introduced" left
+// open by the first (which would collapse them into one wrong interval).
+func TestVulns_MultipleRanges(t *testing.T) {
+	t.Parallel()
+	c := newVulnClient(t, map[string]string{
+		"/index/modules.json": `[{"path":"m.example/x","vulns":[{"id":"GO-2099-0001","modified":"2024-05-20T16:03:47Z"}]}]`,
+		"/ID/GO-2099-0001.json": `{"id":"GO-2099-0001","affected":[{"package":{"name":"m.example/x","ecosystem":"Go"},` +
+			`"ranges":[{"type":"SEMVER","events":[{"introduced":"0"}]},{"type":"SEMVER","events":[{"fixed":"2.0.0"}]}]}]}`,
+	})
+
+	vulns, err := c.Vulns(context.Background(), "m.example/x")
+	require.NoError(t, err)
+	require.Len(t, vulns, 1)
+
+	require.Len(t, vulns[0].Ranges, 2) // not merged into a single [0, 2.0.0).
+	assert.Equal(t, "0", vulns[0].Ranges[0].Introduced.OrEmpty())
+	assert.False(t, vulns[0].Ranges[0].Fixed.IsPresent()) // first interval stays open-ended.
+	assert.False(t, vulns[0].Ranges[1].Introduced.IsPresent())
+	assert.Equal(t, "2.0.0", vulns[0].Ranges[1].Fixed.OrEmpty())
+}
+
+// TestVulns_NestedModuleOwner guards that a package-scoped query resolves to its
+// most specific owning module, not the first prefix match in index order.
+func TestVulns_NestedModuleOwner(t *testing.T) {
+	t.Parallel()
+	// The parent module is listed first; the sub-module is the real owner of the
+	// queried package and the one the OSV report's affected entry names.
+	c := newVulnClient(t, map[string]string{
+		"/index/modules.json": `[` +
+			`{"path":"example.com/root","vulns":[{"id":"GO-2099-2000","modified":"2024-05-20T16:03:47Z"}]},` +
+			`{"path":"example.com/root/sub","vulns":[{"id":"GO-2099-2000","modified":"2024-05-20T16:03:47Z"}]}` +
+			`]`,
+		"/ID/GO-2099-2000.json": `{"id":"GO-2099-2000","affected":[{"package":{"name":"example.com/root/sub","ecosystem":"Go"},` +
+			`"ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"1.2.0"}]}],` +
+			`"ecosystem_specific":{"imports":[{"path":"example.com/root/sub/pkg"}]}}]}`,
+	})
+
+	vulns, err := c.Vulns(context.Background(), "example.com/root/sub/pkg")
+	require.NoError(t, err)
+	require.Len(t, vulns, 1)
+
+	// Scoped to the sub-module: its ranges/packages are populated (they would be
+	// empty had the parent module been picked as the owner).
+	require.Len(t, vulns[0].Ranges, 1)
+	assert.Equal(t, "1.2.0", vulns[0].Ranges[0].Fixed.OrEmpty())
+	require.Len(t, vulns[0].Packages, 1)
+	assert.Equal(t, "example.com/root/sub/pkg", vulns[0].Packages[0].Path)
+}
+
 func TestVulnerability_Marshal(t *testing.T) {
 	t.Parallel()
 

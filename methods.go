@@ -415,30 +415,35 @@ func (c *Client) vulnsFor(ctx context.Context, path, version string, limit int) 
 }
 
 // vulnCandidates triages the module index for the vulnerabilities relevant to
-// path. It returns a map of ID to the module path that listed it, and whether
-// path is itself an indexed module (a module-scoped query) rather than a
-// package. The first module to contribute an ID wins; IDs are deduplicated.
+// path. It returns a map of ID to the owning module path, and whether path is
+// itself an indexed module (a module-scoped query) rather than a package.
+//
+// A package belongs to exactly one module: when path is a package, the owner is
+// the most specific (longest) indexed module path that owns it, so nested
+// modules (e.g. example.com/root vs example.com/root/sub) resolve deterministically
+// regardless of index order. Candidates are collected from that one module only.
 func vulnCandidates(index []vuln.ModuleVulns, path string) (map[string]string, bool) {
 	moduleQuery := false
+	owner := "" // most specific indexed module that owns path
 	for _, m := range index {
-		if m.Path == path {
-			moduleQuery = true
-			break
+		switch {
+		case m.Path == path:
+			moduleQuery, owner = true, m.Path
+		case !moduleQuery && moduleOwnsPackage(m.Path, path) && len(m.Path) > len(owner):
+			owner = m.Path
 		}
 	}
+
 	cands := make(map[string]string)
+	if owner == "" {
+		return cands, moduleQuery
+	}
 	for _, m := range index {
-		match := m.Path == path
-		if !moduleQuery {
-			match = moduleOwnsPackage(m.Path, path)
-		}
-		if !match {
+		if m.Path != owner {
 			continue
 		}
 		for _, iv := range m.Vulns {
-			if _, seen := cands[iv.ID]; !seen {
-				cands[iv.ID] = m.Path
-			}
+			cands[iv.ID] = m.Path
 		}
 	}
 	return cands, moduleQuery

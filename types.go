@@ -556,10 +556,13 @@ func toVulnerability(e *vuln.Entry, module string) Vulnerability {
 // toVersionRanges pairs OSV range events into half-open [introduced, fixed)
 // intervals. A bare "introduced" with no following "fixed" yields an open-ended
 // interval; a "fixed" with no preceding "introduced" yields a fixed-only one.
+//
+// Each OSV range is self-contained, so the open interval is reset per range: a
+// "fixed" in a later range must never close an "introduced" from a prior one.
 func toVersionRanges(ranges []vuln.Range) []VersionRange {
 	var out []VersionRange
-	open := -1 // index of the interval awaiting its Fixed boundary, or -1.
 	for _, r := range ranges {
+		open := -1 // index of the interval awaiting its Fixed boundary, or -1.
 		for _, e := range r.Events {
 			switch {
 			case e.Introduced != "":
