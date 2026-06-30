@@ -62,17 +62,6 @@ func (c *Client) AllVersions(ctx context.Context, path string, opts ...Option) i
 	})
 }
 
-// AllVulns iterates all vulnerabilities for the module or package at path.
-func (c *Client) AllVulns(ctx context.Context, path string, opts ...Option) iter.Seq2[Vulnerability, error] {
-	return paginate(func(token string) (Page[Vulnerability], error) {
-		p, err := c.Vulns(ctx, path, withToken(opts, token)...)
-		if err != nil {
-			return Page[Vulnerability]{}, err
-		}
-		return *p, nil
-	})
-}
-
 // AllSymbols iterates all exported symbols of the package at path.
 func (c *Client) AllSymbols(ctx context.Context, path string, opts ...Option) iter.Seq2[SymbolInfo, error] {
 	return paginate(func(token string) (Page[SymbolInfo], error) {

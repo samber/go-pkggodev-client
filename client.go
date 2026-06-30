@@ -15,6 +15,7 @@ import (
 	"github.com/samber/go-pkggodev-client/internal/api"
 	"github.com/samber/go-pkggodev-client/internal/majors"
 	"github.com/samber/go-pkggodev-client/internal/proxy"
+	"github.com/samber/go-pkggodev-client/internal/vuln"
 )
 
 // DefaultBaseURL is the production pkg.go.dev API base URL.
@@ -95,6 +96,7 @@ var ErrModuleNotFound = errors.New("pkggodev: module not found")
 type Client struct {
 	raw   *api.Client
 	proxy *proxy.Client
+	vuln  *vuln.Client
 	sf    singleflightGroups
 }
 
@@ -114,7 +116,9 @@ type singleflightGroups struct {
 	versions      singleflightx.Group[string, *Page[ModuleVersion]]
 	symbols       singleflightx.Group[string, *Page[SymbolInfo]]
 	symbol        singleflightx.Group[string, *Symbol]
-	vulns         singleflightx.Group[string, *Page[Vulnerability]]
+	vulns         singleflightx.Group[string, []Vulnerability]
+	vulnIndex     singleflightx.Group[string, []vuln.ModuleVulns]
+	vulnEntry     singleflightx.Group[string, *vuln.Entry]
 	majorVersions singleflightx.Group[string, []majors.Major]
 	dependencies  singleflightx.Group[string, *DependenciesResult]
 }
@@ -130,14 +134,19 @@ func sfKey(endpoint string, params ...any) string {
 type ClientOption func(*clientConfig)
 
 type clientConfig struct {
-	baseURL   string
-	http      *http.Client
-	userAgent string
-	goproxy   string
+	baseURL     string
+	vulnBaseURL string
+	http        *http.Client
+	userAgent   string
+	goproxy     string
 }
 
 // WithBaseURL overrides the API base URL.
 func WithBaseURL(u string) ClientOption { return func(c *clientConfig) { c.baseURL = u } }
+
+// WithVulnBaseURL overrides the Go vulnerability database base URL used by
+// Vulns. It defaults to https://vuln.go.dev.
+func WithVulnBaseURL(u string) ClientOption { return func(c *clientConfig) { c.vulnBaseURL = u } }
 
 // WithHTTPClient sets a custom *http.Client (timeouts, transport, etc.).
 func WithHTTPClient(h *http.Client) ClientOption { return func(c *clientConfig) { c.http = h } }
@@ -178,5 +187,6 @@ func New(opts ...ClientOption) (*Client, error) {
 	return &Client{
 		raw:   c,
 		proxy: proxy.New(httpClient, cfg.userAgent, proxy.ResolveGoproxy(cfg.goproxy)),
+		vuln:  vuln.New(httpClient, cfg.userAgent, cfg.vulnBaseURL),
 	}, nil
 }

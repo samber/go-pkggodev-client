@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
+	"strings"
 
 	"github.com/samber/mo"
 	"golang.org/x/sync/errgroup"
@@ -14,9 +16,12 @@ import (
 	"github.com/samber/go-pkggodev-client/internal/gomod"
 	"github.com/samber/go-pkggodev-client/internal/majors"
 	"github.com/samber/go-pkggodev-client/internal/proxy"
+	"github.com/samber/go-pkggodev-client/internal/vuln"
 )
 
-// Search finds packages and symbols. Use WithQuery and/or WithSymbol.
+// Search finds packages and symbols. Use WithQuery and/or WithSymbol to set the
+// query; WithLimit, WithToken and WithFilter tune the listing. Results are
+// paginated (see Page and AllSearch to auto-paginate).
 func (c *Client) Search(ctx context.Context, opts ...Option) (*Page[SearchResult], error) {
 	p := newParams(opts)
 	params := api.GetSearchParams{
@@ -40,7 +45,11 @@ func (c *Client) Search(ctx context.Context, opts ...Option) (*Page[SearchResult
 	return v, err
 }
 
-// Package returns documentation and metadata for the package at path.
+// Package returns documentation and metadata for the package at path. Use
+// WithModule to disambiguate the owning module and WithVersion to pin a version;
+// WithGOOS/WithGOARCH set the build context and WithDoc the doc format. By
+// default docs, examples, imports and licenses are omitted — request them with
+// WithDoc-bearing options, WithExamples, WithImports and WithLicenses.
 func (c *Client) Package(ctx context.Context, path string, opts ...Option) (*Package, error) {
 	p := newParams(opts)
 	params := api.GetPackageParams{
@@ -64,7 +73,10 @@ func (c *Client) Package(ctx context.Context, path string, opts ...Option) (*Pac
 	return v, err
 }
 
-// ImportedBy lists the packages that import the package at path.
+// ImportedBy lists the packages that import the package at path. Use WithModule
+// and WithVersion to scope the package; WithLimit, WithToken and WithFilter tune
+// the listing. The importer paths are paginated inside ImportedByResult.Packages
+// (see AllImportedBy to auto-paginate).
 func (c *Client) ImportedBy(ctx context.Context, path string, opts ...Option) (*ImportedByResult, error) {
 	p := newParams(opts)
 	params := api.GetImportedByParams{
@@ -89,7 +101,10 @@ func (c *Client) ImportedBy(ctx context.Context, path string, opts ...Option) (*
 	return v, err
 }
 
-// Packages lists the packages contained in the module at path.
+// Packages lists the packages contained in the module at path. Use WithVersion
+// to pin a version; WithLimit, WithToken and WithFilter tune the listing. The
+// packages are paginated inside PackagesResult.Packages (see AllPackages to
+// auto-paginate).
 func (c *Client) Packages(ctx context.Context, path string, opts ...Option) (*PackagesResult, error) {
 	p := newParams(opts)
 	params := api.GetPackagesParams{
@@ -118,7 +133,10 @@ func (c *Client) Packages(ctx context.Context, path string, opts ...Option) (*Pa
 	return v, err
 }
 
-// Module returns metadata for the module at path.
+// Module returns metadata for the module at path. Use WithVersion to pin a
+// version and WithLicenses/WithReadme to include the licenses/README. WithSize
+// fills Module.Size from the module proxy with one extra HEAD request and
+// returns ErrProxyDisabled when GOPROXY is "off"/"direct"-only.
 func (c *Client) Module(ctx context.Context, path string, opts ...Option) (*Module, error) {
 	p := newParams(opts)
 	params := api.GetModuleParams{
@@ -166,7 +184,11 @@ func (c *Client) applyModuleSize(ctx context.Context, m *Module, want bool) erro
 	return nil
 }
 
-// Versions lists the versions of the module at path.
+// Versions lists the versions of the module at path. WithLimit, WithToken and
+// WithFilter tune the listing; WithSize fills each ModuleVersion.Size from the
+// module proxy with one concurrent HEAD per version (ErrProxyDisabled when
+// GOPROXY is "off"/"direct"-only). Results are paginated (see Page and
+// AllVersions to auto-paginate).
 func (c *Client) Versions(ctx context.Context, path string, opts ...Option) (*Page[ModuleVersion], error) {
 	p := newParams(opts)
 	params := api.GetVersionsParams{
@@ -228,7 +250,11 @@ func (c *Client) applyVersionSizes(ctx context.Context, items []ModuleVersion, w
 	return g.Wait()
 }
 
-// Symbols lists the exported symbols of the package at path.
+// Symbols lists the exported symbols of the package at path as lightweight
+// SymbolInfo values (use Client.Symbol for one symbol's full doc). Use WithModule
+// and WithVersion to scope the package and WithGOOS/WithGOARCH the build context;
+// WithLimit, WithToken and WithFilter tune the listing. Results are paginated
+// (see Page and AllSymbols to auto-paginate).
 func (c *Client) Symbols(ctx context.Context, path string, opts ...Option) (*Page[SymbolInfo], error) {
 	p := newParams(opts)
 	params := api.GetSymbolsParams{
@@ -310,29 +336,199 @@ func toExamples(in []godoc.Example) []Example {
 	return out
 }
 
-// Vulns lists known vulnerabilities for the module or package at path.
-func (c *Client) Vulns(ctx context.Context, path string, opts ...Option) (*Page[Vulnerability], error) {
+// vulnFetchConcurrency caps the number of concurrent OSV report fetches issued
+// when expanding a module's vulnerabilities into full entries.
+const vulnFetchConcurrency = 16
+
+// Vulns lists known vulnerabilities for the module or package at path, sourced
+// from the Go vulnerability database (https://vuln.go.dev) in OSV format.
+//
+// path may be a module path (exact match) or a package path (matched to its
+// owning module); standard-library imports such as "crypto/x509" resolve to the
+// "stdlib" pseudo-module. With WithVersion set to a concrete semver, only the
+// vulnerabilities actually affecting that version are returned (a symbolic
+// version like "latest" disables this filtering; read the covering fix from each
+// Vulnerability.Ranges). WithLimit caps the result, which is ordered by ID.
+//
+// The result is scoped to the queried module: each Vulnerability hoists that one
+// module's version ranges and packages to the root. Unlike the other listing
+// methods this returns a plain slice — the database is fetched whole, so there
+// is no server-side pagination.
+func (c *Client) Vulns(ctx context.Context, path string, opts ...Option) ([]Vulnerability, error) {
 	p := newParams(opts)
-	params := api.GetVulnsParams{
-		Path:    path,
-		Module:  optStr(p.module),
-		Version: optStr(p.version),
-		Limit:   optInt(p.limit),
-		Token:   optStr(p.token),
-		Filter:  optStr(p.filter),
-	}
-	v, err, _ := c.sf.vulns.Do(sfKey("vulns", params), func() (*Page[Vulnerability], error) {
-		res, err := c.raw.GetVulns(ctx, params)
-		if err != nil {
-			return nil, err
-		}
-		page, err := decodePage[Vulnerability](*res)
-		if err != nil {
-			return nil, err
-		}
-		return &page, nil
+	v, err, _ := c.sf.vulns.Do(sfKey("vulns", path, p.version, p.limit), func() ([]Vulnerability, error) {
+		return c.vulnsFor(ctx, path, p.version, p.limit)
 	})
 	return v, err
+}
+
+// vulnsFor implements Vulns: triage the module index for candidate IDs, fetch
+// each OSV report concurrently, then apply version and package scoping.
+func (c *Client) vulnsFor(ctx context.Context, path, version string, limit int) ([]Vulnerability, error) {
+	index, err, _ := c.sf.vulnIndex.Do("modules", func() ([]vuln.ModuleVulns, error) {
+		return c.vuln.Modules(ctx)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	cands, moduleQuery := vulnCandidates(index, path)
+	if len(cands) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]string, 0, len(cands))
+	for id := range cands {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	versionScoped := vuln.IsSemver(version)
+	results := make([]*Vulnerability, len(ids))
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(vulnFetchConcurrency)
+	for i, id := range ids {
+		module := cands[id]
+		g.Go(func() error {
+			v, err := c.resolveVuln(ctx, id, module, path, version, moduleQuery, versionScoped)
+			if err != nil {
+				return err
+			}
+			results[i] = v
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	out := make([]Vulnerability, 0, len(results))
+	for _, r := range results {
+		if r != nil {
+			out = append(out, *r)
+		}
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// vulnCandidates triages the module index for the vulnerabilities relevant to
+// path. It returns a map of ID to the module path that listed it, and whether
+// path is itself an indexed module (a module-scoped query) rather than a
+// package. The first module to contribute an ID wins; IDs are deduplicated.
+func vulnCandidates(index []vuln.ModuleVulns, path string) (map[string]string, bool) {
+	moduleQuery := false
+	for _, m := range index {
+		if m.Path == path {
+			moduleQuery = true
+			break
+		}
+	}
+	cands := make(map[string]string)
+	for _, m := range index {
+		match := m.Path == path
+		if !moduleQuery {
+			match = moduleOwnsPackage(m.Path, path)
+		}
+		if !match {
+			continue
+		}
+		for _, iv := range m.Vulns {
+			if _, seen := cands[iv.ID]; !seen {
+				cands[iv.ID] = m.Path
+			}
+		}
+	}
+	return cands, moduleQuery
+}
+
+// resolveVuln fetches (and deduplicates) the OSV report for id and maps it to a
+// Vulnerability scoped to module, applying version and package scoping. It
+// returns nil (and no error) when the report is absent or scoped out, so the
+// caller drops it.
+func (c *Client) resolveVuln(ctx context.Context, id, module, path, version string, moduleQuery, versionScoped bool) (*Vulnerability, error) {
+	e, err, _ := c.sf.vulnEntry.Do(id, func() (*vuln.Entry, error) {
+		entry, ok, err := c.vuln.Entry(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, nil // indexed but no report served.
+		}
+		return entry, nil
+	})
+	if err != nil || e == nil {
+		return nil, err
+	}
+
+	if versionScoped && !versionAffected(e, module, version) {
+		return nil, nil // not affected at the requested version.
+	}
+	if !moduleQuery && !packageAffected(e, module, path) {
+		return nil, nil // package not among the affected imports.
+	}
+
+	v := toVulnerability(e, module)
+	return &v, nil
+}
+
+// moduleOwnsPackage reports whether the package pkgPath belongs to modulePath:
+// the module path is an exact or directory prefix of the package path. The
+// "stdlib" pseudo-module owns every standard-library import (a path whose first
+// segment has no dot); "toolchain" owns no importable package.
+func moduleOwnsPackage(modulePath, pkgPath string) bool {
+	switch modulePath {
+	case vuln.ModuleStdlib:
+		return isStdlibImport(pkgPath)
+	case vuln.ModuleToolchain:
+		return false
+	}
+	return pkgPath == modulePath || strings.HasPrefix(pkgPath, modulePath+"/")
+}
+
+// isStdlibImport reports whether p looks like a standard-library import path,
+// i.e. its first segment carries no dot (so it is not a domain-qualified module).
+func isStdlibImport(p string) bool {
+	first, _, _ := strings.Cut(p, "/")
+	return first != "" && !strings.Contains(first, ".")
+}
+
+// versionAffected reports whether version falls in an affected range of module
+// within entry e. The covering fix, if any, is exposed via Vulnerability.Ranges.
+func versionAffected(e *vuln.Entry, module, version string) bool {
+	for _, a := range e.Affected {
+		if a.Module.Path != module {
+			continue
+		}
+		for _, r := range a.Ranges {
+			if affected, _ := vuln.RangeAffected(r.Events, version); affected {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// packageAffected reports whether pkgPath is among the affected imports of
+// module within entry e. When the module lists no imports at all (e.g. an
+// auto-generated UNREVIEWED entry) it cannot be narrowed, so the whole module is
+// considered affected.
+func packageAffected(e *vuln.Entry, module, pkgPath string) bool {
+	hasImports := false
+	for _, a := range e.Affected {
+		if a.Module.Path != module {
+			continue
+		}
+		for _, p := range a.EcosystemSpecific.Imports {
+			hasImports = true
+			if p.Path == pkgPath {
+				return true
+			}
+		}
+	}
+	return !hasImports
 }
 
 // MajorVersions discovers the major versions of the module at modulePath.
