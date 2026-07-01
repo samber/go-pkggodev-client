@@ -91,6 +91,7 @@ func New(opts ...ClientOption) (*Client, error)
 ```
 
 - `WithBaseURL(url)` — override the API base URL.
+- `WithVulnBaseURL(url)` — override the Go vulnerability database base URL used by `Vulns` (defaults to `https://vuln.go.dev`).
 - `WithHTTPClient(*http.Client)` — custom timeouts / transport.
 - `WithUserAgent(string)` — set the `User-Agent` header.
 - `WithGoproxy(string)` — override the module proxy list used by `MajorVersions`, `Dependencies` and
@@ -111,7 +112,7 @@ All take `context.Context` first and return clean, typed values:
 | `Versions(ctx, path, opts...)`   | `*Page[ModuleVersion]` |
 | `Symbols(ctx, path, opts...)`    | `*Page[SymbolInfo]`    |
 | `Symbol(ctx, path, symbol, opts...)` | `*Symbol`          |
-| `Vulns(ctx, path, opts...)`      | `*Page[Vulnerability]` |
+| `Vulns(ctx, path, opts...)`      | `[]Vulnerability`      |
 | `MajorVersions(ctx, modulePath, opts...)` | `*Page[MajorVersion]` |
 | `Dependencies(ctx, modulePath, opts...)`  | `*DependenciesResult`  |
 
@@ -122,6 +123,31 @@ is the exported identifier (`"Map"`) or `"Type.Method"` (`"Either.ForEach"`); ma
 case-sensitive. The doc is derived client-side from the package documentation (always fetched as
 Markdown, so `WithDoc` is ignored here) and the method returns `ErrSymbolNotFound` when the symbol
 is absent. Pass `WithExamples` to include runnable examples.
+
+### Vulnerabilities
+
+`Vulns` is sourced directly from the [Go vulnerability database](https://vuln.go.dev) in
+[OSV](https://ossf.github.io/osv-schema/) format, so each `Vulnerability` carries far more than a
+summary: CVE/GHSA `Aliases`, affected version `Ranges`, the affected `Packages` and their `Symbols`,
+`References`, review status and the `pkg.go.dev/vuln` URL. `path` may be a module path (exact match)
+or a package path (matched to its owning module); standard-library imports such as `crypto/x509`
+resolve to the `stdlib` pseudo-module.
+
+The result is scoped to the queried module, so there is **no single `fixedVersion`** field: a module
+can be fixed across several disjoint intervals, so the fix lives per-interval in `Ranges[].Fixed`.
+
+```go
+for _, v := range vulns {
+    fmt.Println(v.ID, v.Aliases) // GO-2021-0113 [CVE-2021-38561 GHSA-ppp9-7jff-5vj2]
+    for _, r := range v.Ranges {
+        fmt.Printf("  introduced %s, fixed %s\n", r.Introduced.OrEmpty(), r.Fixed.OrEmpty())
+    }
+}
+```
+
+Pass `WithVersion` with a concrete semver to keep only the vulnerabilities actually affecting that
+version (read the covering fix from `Ranges`); `WithLimit` caps the result. The database is fetched
+whole rather than paginated, so `Vulns` returns a plain slice.
 
 ### Major versions
 
@@ -204,7 +230,8 @@ for v, err := range c.AllVersions(ctx, "github.com/samber/do/v2", pkggodev.WithS
 Each listing endpoint has an `All…` variant returning a Go 1.25 `iter.Seq2[T, error]` that lazily
 follows `NextToken` across pages:
 
-`AllSearch`, `AllVersions`, `AllVulns`, `AllSymbols`, `AllPackages`, `AllImportedBy`.
+`AllSearch`, `AllVersions`, `AllSymbols`, `AllPackages`, `AllImportedBy`. (`Vulns` is not
+paginated — it already returns the full slice — so there is no `AllVulns`.)
 
 ```go
 for v, err := range c.AllVersions(ctx, "github.com/samber/lo") {
